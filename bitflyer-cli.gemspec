@@ -4,7 +4,7 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 
 Gem::Specification.new do |spec|
   spec.name          = 'bitflyer-cli'
-  spec.version       = '0.1.0'
+  spec.version       = '0.0.1'
   spec.authors       = ['Yuji Ueki']
   spec.email         = ['unhappychoice@gmail.com']
 
@@ -20,6 +20,7 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency 'thor', '~> 0.19.4'
   spec.add_dependency 'bitflyer', '~> 0.1.0'
+  spec.add_dependency 'colorize', '~> 0.8.1'
 
   spec.add_development_dependency 'bundler', '~> 1.12'
   spec.add_development_dependency 'rake', '~> 10.0'
