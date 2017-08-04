@@ -5,7 +5,7 @@
 [![Dependency Status](https://gemnasium.com/badges/github.com/unhappychoice/bitflyer-cli.svg)](https://gemnasium.com/github.com/unhappychoice/bitflyer-cli)
 ![](http://ruby-gem-downloads-badge.herokuapp.com/bitflyer-cli?type=total)
 
-bitflyer-cli is a CLI tool for [Bitflyer](https://bitflyer.jp/).
+bitflyer-cli is a CLI tool for [Bitflyer](https://bitflyer.jp/) FXBTC.
 
 ## Installation
 
@@ -24,7 +24,10 @@ export BITFLYER_API_SECRET=your-bitflyey-api-secret
 
 ```
 Commands:
-  bitflyer summary  # show current balance information
+  bitflyer counter_trade   # clear all positions
+  bitflyer help [COMMAND]  # Describe available commands or one specific command
+  bitflyer order_by_best   # create limit order by best price in the board
+  bitflyer summary         # show current balance information
 ```
 
 ## Contributing
