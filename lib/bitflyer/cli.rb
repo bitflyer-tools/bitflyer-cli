@@ -1,4 +1,5 @@
 require 'thor'
+require 'bitflyer/cli/command/counter_trade_command'
 require 'bitflyer/cli/command/summary_command'
 require 'bitflyer/cli/command/order_by_best_command'
 
@@ -14,6 +15,11 @@ module Bitflyer
     method_option :type, aliases: 't', type: :string, banner: 'buy or sell'
     def order_by_best
       OrderByBestCommand.new.run(options)
+    end
+
+    desc 'counter_trade', 'clear all positions'
+    def counter_trade
+      CounterTradeCommand.new.run
     end
   end
 end

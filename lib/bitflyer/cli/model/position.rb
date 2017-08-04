@@ -20,6 +20,6 @@ class Position
   end
 
   def size
-    @positions.inject(0.0) { |sum, position| sum + position['size'].to_f * (position['side'] == 'BUY' ? 1.0 : -1.0) }.round(2)
+    @positions.inject(0.0) { |sum, position| sum + position['size'].to_f * (position['side'] == 'BUY' ? 1.0 : -1.0) }
   end
 end
