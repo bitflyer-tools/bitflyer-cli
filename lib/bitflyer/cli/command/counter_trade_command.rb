@@ -7,7 +7,7 @@ class CounterTradeCommand
 
   def run
     position = Position.new(@http_client.positions)
-    size = position.size
+    size = position.size.abs
     type = position.size > 0 ? 'SELL' : 'BUY'
     response = @http_client.send_child_order(
         product_code: 'FX_BTC_JPY',
