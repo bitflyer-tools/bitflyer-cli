@@ -1,14 +1,9 @@
-require 'bitflyer'
-require 'bitflyer/cli/authorization'
+require 'bitflyer/cli/has_http_client'
 
 class CancelAllCommand
-  include Authorization
-
-  def initialize
-    @http_client = Bitflyer.http_private_client(api_key, api_secret)
-  end
+  include HasHTTPClient
 
   def run
-    @http_client.cancel_all_child_orders(product_code: 'FX_BTC_JPY')
+    http_private_client.cancel_all_child_orders(product_code: 'FX_BTC_JPY')
   end
 end

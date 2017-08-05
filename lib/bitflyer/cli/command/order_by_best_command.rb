@@ -1,13 +1,7 @@
-require 'bitflyer'
-require 'bitflyer/cli/authorization'
+require 'bitflyer/cli/has_http_client'
 
 class OrderByBestCommand
-  include Authorization
-
-  def initialize
-    @http_public_client = Bitflyer.http_public_client
-    @http_private_client = Bitflyer.http_private_client(api_key, api_secret)
-  end
+  include HasHTTPClient
 
   def run(options)
     amount = options.amount
@@ -18,16 +12,17 @@ class OrderByBestCommand
       return
     end
 
-    ticker = @http_public_client.ticker('FX_BTC_JPY')
+    ticker = http_public_client.ticker('FX_BTC_JPY')
     price = type == 'buy' ? ticker['best_bid'] : ticker['best_ask']
 
-    response = @http_private_client.send_child_order(
+    response = http_private_client.send_child_order(
         product_code: 'FX_BTC_JPY',
         child_order_type: 'LIMIT',
         side: type.upcase,
         price: price,
         size: amount
     )
+
     if response['child_order_acceptance_id'].nil?
       puts 'An error has occurred' + response.to_s
     else

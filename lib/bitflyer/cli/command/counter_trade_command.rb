@@ -1,18 +1,13 @@
-require 'bitflyer'
-require 'bitflyer/cli/authorization'
+require 'bitflyer/cli/has_http_client'
 
 class CounterTradeCommand
-  include Authorization
-
-  def initialize
-    @http_client = Bitflyer.http_private_client(api_key, api_secret)
-  end
+  include HasHTTPClient
 
   def run
-    position = Position.new(@http_client.positions)
+    position = Position.new(http_private_client.positions)
     size = position.size.abs
     type = position.size > 0 ? 'SELL' : 'BUY'
-    response = @http_client.send_child_order(
+    response = http_private_client.send_child_order(
         product_code: 'FX_BTC_JPY',
         child_order_type: 'MARKET',
         side: type,

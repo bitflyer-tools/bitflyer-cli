@@ -1,19 +1,18 @@
-require 'bitflyer'
-require 'bitflyer/cli/authorization'
+require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/has_realtime_client'
 require 'bitflyer/cli/ext/string'
 require 'bitflyer/cli/model/position'
 
 class SummaryCommand
-  include Authorization
+  include HasHTTPClient
+  include HasRealtimeClient
 
   BUFFER_SIZE = 30.freeze
 
   def initialize
     @current_price = 0.0
-    @http_clinet = Bitflyer.http_private_client(api_key, api_secret)
-    @realtime_client = Bitflyer.realtime_client
 
-    @realtime_client.executions_fx_btc_jpy = ->(message) {
+    realtime_client.executions_fx_btc_jpy = ->(message) {
       message.each { |m| @current_price = m['price'].to_f }
     }
 
@@ -43,8 +42,8 @@ class SummaryCommand
   private
 
   def update_balance
-    @position = Position.new(@http_clinet.positions)
-    @balance = @http_clinet.collateral['collateral'].to_i
+    @position = Position.new(http_private_client.positions)
+    @balance = http_private_client.collateral['collateral'].to_i
   end
 
   def profit
