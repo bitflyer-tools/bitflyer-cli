@@ -30,7 +30,7 @@ class SummaryCommand
     while true
       print "\e[3F\e[0J"
       print "Current:  " + @current_price.to_i.to_s.split_by_comma
-      print "\nPosition: " + "#{@position.average} * #{@position.size}".to_s.split_by_comma
+      print "\nPosition: " + "#{@position.average} * #{@position.size.to_f}".to_s.split_by_comma
       print "\nSpread:   " + spread.to_s.split_by_comma.color_with_number(spread)
       print "\nBalance:  " + (@balance + profit).to_s.split_by_comma.ljust(15, ' ') + "(#{profit.to_s.split_by_comma.color_with_number(profit)})"
       sleep 0.1
