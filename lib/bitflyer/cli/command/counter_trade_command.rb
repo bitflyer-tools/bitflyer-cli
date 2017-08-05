@@ -1,6 +1,9 @@
 require 'bitflyer'
+require 'bitflyer/cli/authorization'
 
 class CounterTradeCommand
+  include Authorization
+
   def initialize
     @http_client = Bitflyer.http_private_client(api_key, api_secret)
   end
@@ -20,15 +23,5 @@ class CounterTradeCommand
     else
       puts "Clear position #{type} / #{size}"
     end
-  end
-
-  private
-
-  def api_key
-    ENV['BITFLYER_API_KEY']
-  end
-
-  def api_secret
-    ENV['BITFLYER_API_SECRET']
   end
 end

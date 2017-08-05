@@ -1,6 +1,9 @@
 require 'bitflyer'
+require 'bitflyer/cli/authorization'
 
 class OrderByBestCommand
+  include Authorization
+
   def initialize
     @http_public_client = Bitflyer.http_public_client
     @http_private_client = Bitflyer.http_private_client(api_key, api_secret)
@@ -30,15 +33,5 @@ class OrderByBestCommand
     else
       puts "An order is created #{type} / #{price} / #{amount}"
     end
-  end
-
-  private
-
-  def api_key
-    ENV['BITFLYER_API_KEY']
-  end
-
-  def api_secret
-    ENV['BITFLYER_API_SECRET']
   end
 end

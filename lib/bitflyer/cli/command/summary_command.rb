@@ -1,8 +1,11 @@
 require 'bitflyer'
+require 'bitflyer/cli/authorization'
 require 'bitflyer/cli/ext/string'
 require 'bitflyer/cli/model/position'
 
 class SummaryCommand
+  include Authorization
+
   BUFFER_SIZE = 30.freeze
 
   def initialize
@@ -38,14 +41,6 @@ class SummaryCommand
   end
 
   private
-
-  def api_key
-    ENV['BITFLYER_API_KEY']
-  end
-
-  def api_secret
-    ENV['BITFLYER_API_SECRET']
-  end
 
   def update_balance
     @position = Position.new(@http_clinet.positions)
