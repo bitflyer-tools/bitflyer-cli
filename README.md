@@ -16,14 +16,15 @@ gem install bitflyer-cli
 Set the `BITFLYER_API_TOKEN` and `BITFLYER_API_SECRET` environment variable.
 
 ```sh
-export BITFLYER_API_TOKEN=your-bitflyey-api-token
-export BITFLYER_API_SECRET=your-bitflyey-api-secret
+export BITFLYER_API_TOKEN=your-bitflyer-api-token
+export BITFLYER_API_SECRET=your-bitflyer-api-secret
 ```
 
 ## Usage
 
 ```
 Commands:
+  bitflyer cancel_all      # cancel all of orders
   bitflyer counter_trade   # clear all positions
   bitflyer help [COMMAND]  # Describe available commands or one specific command
   bitflyer order_by_best   # create limit order by best price in the board
