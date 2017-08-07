@@ -24,11 +24,12 @@ export BITFLYER_API_SECRET=your-bitflyer-api-secret
 
 ```
 Commands:
-  bitflyer cancel_all      # cancel all of orders
-  bitflyer counter_trade   # clear all positions
-  bitflyer help [COMMAND]  # Describe available commands or one specific command
-  bitflyer order_by_best   # create limit order by best price in the board
-  bitflyer summary         # show current balance information
+  bitflyer cancel_all                                          # cancel all of orders
+  bitflyer counter_trade                                       # clear all positions
+  bitflyer help [COMMAND]                                      # Describe available commands or one specific command
+  bitflyer order_by_best -a=amount -t=buy/sell                 # create limit order by best price in the board
+  bitflyer order_by_twap -a=amount -i=second -n=N -t=buy/sell  # trade specified amount N times at specified intervals (TWAP algorithm).
+  bitflyer summary                                             # show current balance information
 ```
 
 ## Contributing
