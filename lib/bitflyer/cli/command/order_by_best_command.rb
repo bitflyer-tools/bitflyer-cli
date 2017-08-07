@@ -6,11 +6,6 @@ class OrderByBestCommand
   def run(options)
     amount = options.amount
     type = options.type
-    if amount == nil || type == nil
-      puts 'You need set amount by -a and type by -t'
-      puts 'ex: bitflyer order_by_best -a 10 -t buy'
-      return
-    end
 
     ticker = http_public_client.ticker('FX_BTC_JPY')
     price = type == 'buy' ? ticker['best_bid'] : ticker['best_ask']
