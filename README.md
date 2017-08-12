@@ -29,6 +29,7 @@ Commands:
   bitflyer help [COMMAND]                                      # Describe available commands or one specific command
   bitflyer order_by_best -a=amount -t=buy/sell                 # create limit order by best price in the board
   bitflyer order_by_twap -a=amount -i=second -n=N -t=buy/sell  # trade specified amount N times at specified intervals (TWAP algorithm).
+  bitflyer stop_by_range r, --range=price range                # create stop order by range based on current position
   bitflyer summary                                             # show current balance information
 ```
 
