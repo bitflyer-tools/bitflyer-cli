@@ -30,11 +30,12 @@ class SummaryCommand
     end
 
     while true
-      print "\e[3F\e[0J"
-      print "Current:  " + @current_price.to_i.to_s.split_by_comma
-      print "\nPosition: " + "#{@position.average.to_s.split_by_comma} * #{@position.size.to_f}"
-      print "\nSpread:   " + spread.to_s.split_by_comma.color_with_number(spread)
-      print "\nBalance:  " + (@balance + profit).to_s.split_by_comma.ljust(15, ' ') + "(#{profit.to_s.split_by_comma.color_with_number(profit)})"
+      print <<-"EOS"
+\e[4F\e[0JCurrent:  #{@current_price.to_i.to_s.split_by_comma}
+Position: #{@position.average.to_s.split_by_comma} * #{@position.size.to_f}
+Spread:   #{spread.to_s.split_by_comma.color_with_number(spread)}
+Balance:  #{(@balance + profit).to_s.split_by_comma.ljust(15, ' ')} (#{profit.to_s.split_by_comma.color_with_number(profit)})
+      EOS
       sleep 0.1
     end
   end
