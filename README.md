@@ -2,7 +2,6 @@
 [![Gem Version](https://badge.fury.io/rb/bitflyer-cli.svg)](https://badge.fury.io/rb/bitflyer-cli)
 [![Circle CI](https://circleci.com/gh/unhappychoice/bitflyer-cli.svg?style=shield)](https://circleci.com/gh/unhappychoice/bitflyer-cli)
 [![Code Climate](https://codeclimate.com/github/unhappychoice/bitflyer-cli/badges/gpa.svg)](https://codeclimate.com/github/unhappychoice/bitflyer-cli)
-[![Dependency Status](https://gemnasium.com/badges/github.com/unhappychoice/bitflyer-cli.svg)](https://gemnasium.com/github.com/unhappychoice/bitflyer-cli)
 ![](http://ruby-gem-downloads-badge.herokuapp.com/bitflyer-cli?type=total)
 
 bitflyer-cli is a CLI tool for [Bitflyer](https://bitflyer.jp/) FXBTC.
