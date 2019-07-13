@@ -40,6 +40,15 @@ module Bitflyer
       StopByRangeCommand.new.run(options)
     end
 
+    desc 'ifdoco_by_range', 'create IFDOCO order by range based on current price'
+    method_option :amount, aliases: 'a', type: :numeric, banner: 'amount', required: true
+    method_option :type, aliases: 't', type: :string, banner: 'buy/sell', required: true
+    method_option :range, aliases: 'r', type: :numeric, banner: 'price range', required: true
+    method_option :percentage, aliases: 'p', type: :numeric, banner: 'price ratio percentage', required: true
+    def ifdoco_by_range
+      #TODO: Implement
+    end
+
     desc 'summary', 'show current balance information'
     def summary
       SummaryCommand.new.run
