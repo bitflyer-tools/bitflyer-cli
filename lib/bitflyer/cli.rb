@@ -1,6 +1,7 @@
 require 'thor'
 require 'bitflyer/cli/command/cancel_all_command'
 require 'bitflyer/cli/command/counter_trade_command'
+require 'bitflyer/cli/command/ifdoco_by_range_command'
 require 'bitflyer/cli/command/order_by_best_command'
 require 'bitflyer/cli/command/order_by_twap_command'
 require 'bitflyer/cli/command/stop_by_range_command'
@@ -38,6 +39,15 @@ module Bitflyer
     method_option :range, aliases: 'r', type: :numeric, banner: 'price range', required: true
     def stop_by_range
       StopByRangeCommand.new.run(options)
+    end
+
+    desc 'ifdoco_by_range', 'create IFDOCO order by range based on current price'
+    method_option :amount, aliases: 'a', type: :numeric, banner: 'amount', required: true
+    method_option :type, aliases: 't', type: :string, banner: 'buy/sell', required: true
+    method_option :range, aliases: 'r', type: :numeric, banner: 'price range', required: true
+    method_option :percentage, aliases: 'p', type: :numeric, banner: 'price ratio percentage', required: true
+    def ifdoco_by_range
+      IFDOCOByRangeCommand.new.run(options)
     end
 
     desc 'summary', 'show current balance information'
