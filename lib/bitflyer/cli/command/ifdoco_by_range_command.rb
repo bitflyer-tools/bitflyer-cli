@@ -10,7 +10,7 @@ class IFDOCOByRangeCommand
     ratio = options.percentage.to_f
     range = options.range.to_f
 
-    current_price = http_public_client.ticker('FX_BTC_JPY')['ltp'].to_i
+    current_price = http_public_client.ticker(product_code: 'FX_BTC_JPY')['ltp'].to_i
     profit_price = profit_line(side: side, current_price: current_price, range: range, ratio: ratio).to_i
     loss_price = loss_line(side: side, current_price: current_price, range: range, ratio: ratio).to_i
     request = request(side: side, size: size, profit_price: profit_price, loss_price: loss_price)
