@@ -2,7 +2,7 @@ PATH
   remote: .
   specs:
     bitflyer-cli (0.5.0)
-      bitflyer (>= 0.2.2, < 1.1.0)
+      bitflyer (>= 1.0.0, < 1.1.0)
       colorize (~> 0.8.1)
       thor (~> 0.20.0)
 
