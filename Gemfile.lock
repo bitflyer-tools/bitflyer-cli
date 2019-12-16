@@ -4,7 +4,7 @@ PATH
     bitflyer-cli (0.5.0)
       bitflyer (>= 1.0.0, < 1.1.0)
       colorize (~> 0.8.1)
-      thor (~> 0.20.0)
+      thor (>= 0.20, < 1.1)
 
 GEM
   remote: https://rubygems.org/
@@ -35,7 +35,7 @@ GEM
       diff-lcs (>= 1.2.0, < 2.0)
       rspec-support (~> 3.9.0)
     rspec-support (3.9.0)
-    thor (0.20.3)
+    thor (1.0.0)
     websocket (1.2.8)
     websocket-client-simple (0.3.0)
       event_emitter
