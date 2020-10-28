@@ -1,4 +1,4 @@
 require 'spec_helper'
 
-describe Bitflyer::Cli do
+describe Bitflyer::CLI do
 end
