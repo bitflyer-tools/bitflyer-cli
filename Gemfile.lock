@@ -38,7 +38,7 @@ GEM
     rspec-support (3.10.0)
     ruby2_keywords (0.0.2)
     thor (1.0.1)
-    websocket (1.2.8)
+    websocket (1.2.9)
     websocket-client-simple (0.3.0)
       event_emitter
       websocket
