@@ -46,7 +46,7 @@ GEM
       diff-lcs (>= 1.2.0, < 2.0)
       rspec-support (~> 3.10.0)
     rspec-support (3.10.2)
-    ruby2_keywords (0.0.4)
+    ruby2_keywords (0.0.5)
     thor (1.1.0)
     websocket (1.2.9)
     websocket-client-simple (0.3.0)
