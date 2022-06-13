@@ -31,7 +31,7 @@ GEM
     faraday-net_http_persistent (1.2.0)
     faraday_middleware (1.0.0)
       faraday (~> 1.0)
-    multipart-post (2.2.2)
+    multipart-post (2.2.3)
     rake (13.0.6)
     rspec (3.11.0)
       rspec-core (~> 3.11.0)
