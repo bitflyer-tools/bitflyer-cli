@@ -20,7 +20,7 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency 'thor', '>= 0.20', '< 1.3'
   spec.add_dependency 'bitflyer', '>= 1.0.0', '< 1.5.0'
-  spec.add_dependency 'colorize', '~> 0.8.1'
+  spec.add_dependency 'colorize', '>= 0.8.1', '< 1.1.0'
 
   spec.add_development_dependency 'bundler', '~> 2.0'
   spec.add_development_dependency 'rake'
