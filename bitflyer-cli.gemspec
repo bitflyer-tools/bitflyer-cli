@@ -1,10 +1,11 @@
 # coding: utf-8
 lib = File.expand_path('../lib', __FILE__)
 $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
+require 'bitflyer/cli/version'
 
 Gem::Specification.new do |spec|
   spec.name                              = 'bitflyer-cli'
-  spec.version                           = '0.5.0'
+  spec.version                           = Bitflyer::Cli::VERSION
   spec.required_ruby_version             = '>= 3.1'
   spec.authors                           = ['Yuji Ueki']
   spec.email                             = ['unhappychoice@gmail.com']
