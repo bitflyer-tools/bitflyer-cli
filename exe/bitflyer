@@ -2,4 +2,4 @@
 
 require 'bitflyer/cli'
 
-Bitflyer::CLI.start
+Bitflyer::Cli::Runner.start
