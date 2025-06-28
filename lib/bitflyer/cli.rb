@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'thor'
 require 'bitflyer/cli/command/cancel_all_command'
 require 'bitflyer/cli/command/counter_trade_command'

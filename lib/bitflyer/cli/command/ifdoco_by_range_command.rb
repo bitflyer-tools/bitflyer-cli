@@ -1,10 +1,12 @@
+# frozen_string_literal: true
+
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/model/position'
 
 class IFDOCOByRangeCommand
   include HasHTTPClient
 
-  def run(options)
+  def run(options) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     side = options.type.upcase
     size = options.amount.abs
     ratio = options.percentage.to_f
@@ -17,7 +19,7 @@ class IFDOCOByRangeCommand
     response = http_private_client.send_parent_order(request)
 
     if response['parent_order_acceptance_id'].nil?
-      puts 'An error has occurred' + response.to_s
+      puts "An error has occurred#{response}"
     else
       puts "Send market order #{side} / #{size.to_f}"
       puts "Set limit order #{side} / #{profit_price} / #{size.to_f}"
@@ -27,7 +29,7 @@ class IFDOCOByRangeCommand
 
   private
 
-  def request(side:, size:, profit_price:, loss_price:)
+  def request(side:, size:, profit_price:, loss_price:) # rubocop:disable Metrics/MethodLength
     {
       order_method: 'IFDOCO',
       time_in_force: 'GTC',
@@ -58,9 +60,9 @@ class IFDOCOByRangeCommand
 
   def profit_line(side:, current_price:, range:, ratio:)
     if side == 'BUY'
-      current_price + range * ratio / 100.0
+      current_price + (range * ratio / 100.0)
     elsif side == 'SELL'
-      current_price - range * ratio / 100.0
+      current_price - (range * ratio / 100.0)
     else
       0
     end
@@ -68,9 +70,9 @@ class IFDOCOByRangeCommand
 
   def loss_line(side:, current_price:, range:, ratio:)
     if side == 'BUY'
-      current_price - range * (100.0 - ratio) / 100.0
+      current_price - (range * (100.0 - ratio) / 100.0)
     elsif side == 'SELL'
-      current_price + range * (100.0 - ratio) / 100.0
+      current_price + (range * (100.0 - ratio) / 100.0)
     else
       0
     end

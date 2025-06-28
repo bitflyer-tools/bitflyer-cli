@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'colorize'
 
 class String
@@ -7,6 +9,6 @@ class String
   end
 
   def split_by_comma
-    reverse.gsub( /(\d{3})(?=\d)/, '\1,').reverse
+    reverse.gsub(/(\d{3})(?=\d)/, '\1,').reverse
   end
 end

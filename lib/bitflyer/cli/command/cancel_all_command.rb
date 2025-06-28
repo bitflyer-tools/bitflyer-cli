@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'bitflyer/cli/has_http_client'
 
 class CancelAllCommand
