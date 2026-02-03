@@ -9,8 +9,6 @@ class SummaryCommand
   include HasHTTPClient
   include HasRealtimeClient
 
-  BUFFER_SIZE = 30
-
   def initialize
     @current_price = 0.0
 
@@ -23,6 +21,7 @@ class SummaryCommand
 
   def run # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     $stdout.sync = true
+    print "\e[?25l"
 
     Thread.new do
       loop do
@@ -30,6 +29,8 @@ class SummaryCommand
         sleep 5
       end
     end
+
+    puts "\n" * 3
 
     loop do
       print <<~EOS
@@ -40,6 +41,10 @@ class SummaryCommand
       EOS
       sleep 0.1
     end
+  rescue Interrupt
+    # exit
+  ensure
+    print "\e[?25h"
   end
 
   private
