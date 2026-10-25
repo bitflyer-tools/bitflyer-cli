@@ -22,6 +22,10 @@ class Position
     @positions.inject('0'.to_d) { |sum, position| sum + (position['price'].to_s.to_d * position['size'].to_s.to_d) }
   end
 
+  def empty?
+    @positions.empty?
+  end
+
   def size
     @positions.inject('0'.to_d) { |sum, position| sum + (position['size'].to_s.to_d * coefficient(position)) }
   end
