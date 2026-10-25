@@ -10,6 +10,7 @@ module ClientDoubles
   end
 
   def stub_private_client
+    stub_credentials
     with_stubbed_connection { Bitflyer::HTTP::Private::Client.new('key', 'secret') }.tap do |client|
       allow(Bitflyer).to receive(:http_private_client).and_return(client)
     end
@@ -39,6 +40,12 @@ module ClientDoubles
   end
 
   private
+
+  def stub_credentials
+    allow(ENV).to receive(:[]).and_call_original
+    allow(ENV).to receive(:[]).with('BITFLYER_API_KEY').and_return('key')
+    allow(ENV).to receive(:[]).with('BITFLYER_API_SECRET').and_return('secret')
+  end
 
   def with_stubbed_connection
     empty_response = Bitflyer::HTTP::Response.new({})
