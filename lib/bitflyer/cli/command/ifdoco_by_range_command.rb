@@ -16,7 +16,7 @@ class IFDOCOByRangeCommand
     profit_price = profit_line(side: side, current_price: current_price, range: range, ratio: ratio).to_i
     loss_price = loss_line(side: side, current_price: current_price, range: range, ratio: ratio).to_i
     request = request(side: side, size: size, profit_price: profit_price, loss_price: loss_price)
-    response = http_private_client.send_parent_order(request)
+    response = http_private_client.send_parent_order(**request)
 
     if response['parent_order_acceptance_id'].nil?
       puts "An error has occurred#{response}"
