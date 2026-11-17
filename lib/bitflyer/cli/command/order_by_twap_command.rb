@@ -11,9 +11,9 @@ class OrderByTWAPCommand
     number = options.number_of_times
     interval = options.interval
 
-    number.to_i.times do |_|
+    number.to_i.times do |index|
+      sleep interval if index.positive?
       order(type, amount)
-      sleep interval
     end
   end
 
