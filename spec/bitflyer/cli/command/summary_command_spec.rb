@@ -39,6 +39,21 @@ describe SummaryCommand do
     expect(output).to include('Current:  0', 'Balance:  50,000')
   end
 
+  it 'renders new prices without rereading position rows' do
+    command = described_class.new
+    expect(positions).not_to receive(:each)
+    expect(positions).not_to receive(:inject)
+    expect(positions.first).not_to receive(:[])
+
+    executions_callback.first.call([{ 'price' => 1_010_000 }])
+    first_frame = capture_stdout { run_once(command) }
+    executions_callback.first.call([{ 'price' => 1_020_000 }])
+    second_frame = capture_stdout { run_once(command) }
+
+    expect(first_frame).to include('Position: 1,000,000 * 0.1', 'Balance:  51,000')
+    expect(second_frame).to include('Position: 1,000,000 * 0.1', 'Balance:  52,000')
+  end
+
   it 'restores the cursor when interrupted' do
     output = capture_stdout { run_once(described_class.new) }
 
