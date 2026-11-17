@@ -26,10 +26,10 @@ describe 'Loading the counter trade command on its own' do
     RUBY
 
     lib = File.expand_path('../../../../lib', __dir__)
-    output, status = Open3.capture2e(RbConfig.ruby, '-I', lib, '-e', script)
+    stdout, stderr, status = Open3.capture3(RbConfig.ruby, '-I', lib, '-e', script)
 
-    expect(status.success?).to be(true), output
-    expect(output).to eq("Clear position SELL / 0.1\n")
+    expect(status.success?).to be(true), stdout + stderr
+    expect(stdout).to eq("Clear position SELL / 0.1\n")
   end
 end
 
