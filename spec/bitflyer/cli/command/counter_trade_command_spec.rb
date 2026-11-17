@@ -8,6 +8,15 @@ describe CounterTradeCommand do
     stub_responses(private_client, positions: positions, send_child_order: accepted)
   end
 
+  context 'with no positions' do
+    let(:positions) { [] }
+
+    it 'prints a message without submitting an order' do
+      expect { described_class.new.run }.to output("You don't have any position now.\n").to_stdout
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+  end
+
   context 'with a long position' do
     let(:positions) do
       [position(side: 'BUY', price: 1_000_000, size: 0.1), position(side: 'BUY', price: 1_000_000, size: 0.2)]

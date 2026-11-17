@@ -7,6 +7,8 @@ class CounterTradeCommand
 
   def run # rubocop:disable Metrics/MethodLength
     position = Position.new(http_private_client.positions)
+    return puts "You don't have any position now." if position.empty?
+
     size = position.size.abs.to_f
     type = position.size.positive? ? 'SELL' : 'BUY'
     response = http_private_client.send_child_order(
