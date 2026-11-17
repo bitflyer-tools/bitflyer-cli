@@ -10,8 +10,9 @@ describe IFDOCOByRangeCommand do
     stub_responses(private_client, send_parent_order: response)
   end
 
-  def run(type)
-    described_class.new.run(thor_options(amount: 0.01, type: type, range: 10_000, percentage: 60))
+  def run(type, **overrides)
+    options = { amount: 0.01, type: type, range: 10_000, percentage: 60 }.merge(overrides)
+    described_class.new.run(thor_options(**options))
   end
 
   def ifdoco_order(side:, counter_side:, profit_price:, loss_price:)
@@ -37,6 +38,46 @@ describe IFDOCOByRangeCommand do
     expect { run('sell') }.to output(/Send market order SELL/).to_stdout
     expect(private_client).to have_received(:send_parent_order)
       .with(**ifdoco_order(side: 'SELL', counter_side: 'BUY', profit_price: 994_000, loss_price: 1_004_000))
+  end
+
+  %w[buy sell].each do |side|
+    context "for a #{side} order" do
+      [
+        [{ amount: 0 }, /Amount must be positive/],
+        [{ amount: -0.01 }, /Amount must be positive/],
+        [{ amount: Float::INFINITY }, /Amount must be positive and finite/],
+        [{ range: 0 }, /Range must be positive/],
+        [{ range: -10_000 }, /Range must be positive/],
+        [{ range: Float::INFINITY }, /Range must be positive and finite/],
+        [{ percentage: -1 }, /Percentage must be greater than 0 and less than 100/],
+        [{ percentage: 0 }, /Percentage must be greater than 0 and less than 100/],
+        [{ percentage: 100 }, /Percentage must be greater than 0 and less than 100/],
+        [{ percentage: 120 }, /Percentage must be greater than 0 and less than 100/]
+      ].each do |options, message|
+        it "rejects #{options} before fetching the reference price" do
+          expect { run(side, **options) }.to raise_error(Thor::Error, message)
+          expect(public_client).not_to have_received(:ticker)
+          expect(private_client).not_to have_received(:send_parent_order)
+        end
+      end
+
+      it 'rejects an integer exit price equal to the reference price' do
+        expect { run(side, range: 1, percentage: 50) }
+          .to raise_error(Thor::Error, /must strictly bracket the reference price after rounding/)
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
+      it 'rejects a range that overflows the exit price calculation' do
+        expect { run(side, range: Float::MAX) }.to raise_error(Thor::Error, /Exit prices must be finite/)
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+    end
+  end
+
+  it 'rejects an unknown order type before fetching the reference price' do
+    expect { run('unknown') }.to raise_error(Thor::Error, /Order type must be buy or sell/)
+    expect(public_client).not_to have_received(:ticker)
+    expect(private_client).not_to have_received(:send_parent_order)
   end
 
   context 'when the order is rejected' do
