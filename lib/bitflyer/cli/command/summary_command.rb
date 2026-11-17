@@ -19,7 +19,7 @@ class SummaryCommand
     update_balance
   end
 
-  def run # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+  def run # rubocop:disable Metrics/MethodLength
     $stdout.sync = true
     print "\e[?25l"
 
@@ -31,14 +31,14 @@ class SummaryCommand
     end
 
     puts "\n" * 3
+    previous_frame = nil
 
     loop do
-      print <<~EOS
-        \e[4F\e[0JCurrent:  #{@current_price.to_i.to_s.split_by_comma}
-        Position: #{@position.average.to_s.split_by_comma} * #{@position.size.to_f}
-        Spread:   #{spread.to_s.split_by_comma.color_with_number(spread)}
-        Balance:  #{(@balance + profit).to_s.split_by_comma.ljust(15, ' ')} (#{profit.to_s.split_by_comma.color_with_number(profit)})
-      EOS
+      frame = summary_frame
+      if frame != previous_frame
+        print frame
+        previous_frame = frame
+      end
       sleep 0.1
     end
   rescue Interrupt
@@ -48,6 +48,23 @@ class SummaryCommand
   end
 
   private
+
+  def summary_frame
+    current_spread = spread
+
+    <<~EOS
+      \e[4F\e[0JCurrent:  #{@current_price.to_i.to_s.split_by_comma}
+      Position: #{@position.average.to_s.split_by_comma} * #{@position.size.to_f}
+      Spread:   #{current_spread.to_s.split_by_comma.color_with_number(current_spread)}
+      Balance:  #{formatted_balance}
+    EOS
+  end
+
+  def formatted_balance
+    current_profit = profit
+    balance = (@balance + current_profit).to_s.split_by_comma.ljust(15, ' ')
+    "#{balance} (#{current_profit.to_s.split_by_comma.color_with_number(current_profit)})"
+  end
 
   def update_balance
     @position = Position.new(http_private_client.positions)
