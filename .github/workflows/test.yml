@@ -11,9 +11,6 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.4.4'
-          rubygems: latest
-      - name: Install bundler
-        run: gem install bundler
       - name: Install dependencies
         run: bundle install --jobs 4
       - name: Run lint
@@ -23,16 +20,13 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        ruby: ['3.4.4', '3.3.8', '3.2.8', '3.1.7']
+        ruby: ['3.4.4', '3.3.13']
     steps:
       - uses: actions/checkout@v4
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
-          rubygems: latest
-      - name: Install bundler
-        run: gem install bundler
       - name: Install dependencies
         run: bundle install --jobs 4
       - name: Run test
