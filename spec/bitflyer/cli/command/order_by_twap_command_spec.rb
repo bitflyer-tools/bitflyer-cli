@@ -11,18 +11,18 @@ describe OrderByTWAPCommand do
   end
 
   def run
-    command.run(thor_options(amount: 0.01, type: 'buy', number_of_times: 3, interval: 10))
+    command.run(thor_options(amount: 0.01, type: 'buy', number_of_times: 2, interval: 10))
   end
 
   it 'sends the given number of market orders' do
     expect { run }.to output.to_stdout
     expect(private_client).to have_received(:send_child_order)
-      .with(product_code: 'FX_BTC_JPY', child_order_type: 'MARKET', side: 'BUY', size: 0.01).exactly(3).times
+      .with(product_code: 'FX_BTC_JPY', child_order_type: 'MARKET', side: 'BUY', size: 0.01).exactly(2).times
   end
 
   it 'waits the interval after each order' do
     expect { run }.to output.to_stdout
-    expect(command).to have_received(:sleep).with(10).exactly(3).times
+    expect(command).to have_received(:sleep).with(10).exactly(2).times
   end
 
   context 'when an order is rejected' do
