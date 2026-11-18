@@ -1,16 +1,17 @@
 # frozen_string_literal: true
 
-require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/authorization'
+require 'bitflyer/cli/cancellation_client'
 
 class CancelOrderCommand
-  include HasHTTPClient
+  include Authorization
 
   class Failed < StandardError; end
 
   def run(type, id, confirm_parent: false)
     validate_order(type, id, confirm_parent)
     response = cancel(type, id)
-    raise Failed, failure_message(response) unless response == ''
+    raise Failed, failure_message(response) unless response.code == '200' && response.body.to_s.empty?
 
     puts "Cancellation request accepted for #{type} order #{id}."
   end
@@ -26,20 +27,31 @@ class CancelOrderCommand
   end
 
   def cancel(type, id)
-    if type == 'child'
-      http_private_client.cancel_child_order(product_code: 'FX_BTC_JPY', child_order_id: id)
-    else
-      http_private_client.cancel_parent_order(product_code: 'FX_BTC_JPY', parent_order_id: id)
-    end
+    client = CancellationClient.new(api_key, api_secret)
+    client.post("/v1/me/cancel#{type}order", 'product_code' => 'FX_BTC_JPY', "#{type}_order_id" => id)
   end
 
   def failure_message(response)
-    return 'Could not verify cancellation acceptance from bitFlyer.' unless response.is_a?(Hash)
+    body = parse_body(response.body)
+    message = api_error(body)
+    return message if message
+    return "Cancellation request rejected (HTTP #{response.code})." unless response.code == '200'
+
+    'Could not verify cancellation acceptance from bitFlyer.'
+  end
+
+  def parse_body(body)
+    JSON.parse(body.to_s)
+  rescue JSON::ParserError
+    nil
+  end
+
+  def api_error(response)
+    return unless response.is_a?(Hash)
 
     message = response['error_message'].to_s
     return "Cancellation request rejected. #{message}" unless message.empty?
-    return "Cancellation request rejected (status #{response['status']})." if response['status'].to_i.negative?
 
-    'Could not verify cancellation acceptance from bitFlyer.'
+    "Cancellation request rejected (status #{response['status']})." if response['status'].to_i.negative?
   end
 end

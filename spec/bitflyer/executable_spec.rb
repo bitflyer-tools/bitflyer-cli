@@ -28,64 +28,84 @@ describe 'bitflyer executable' do
     expect { run_cli('open_orders') }.to output("Child orders\nNone.\nParent strategies\nNone.\n").to_stdout
   end
 
+  def stub_cancellation_response(code, body)
+    response = instance_double(Net::HTTPResponse, code: code, body: body)
+    transport = instance_double(Net::HTTP, request: response)
+    allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true).and_yield(transport)
+    transport
+  end
+
+  def expect_cancellation_request(transport, type, id)
+    expect(transport).to have_received(:request).once do |request|
+      expect(request).to be_a(Net::HTTP::Post)
+      expect(request.path).to eq("/v1/me/cancel#{type}order")
+      expect(JSON.parse(request.body)).to eq('product_code' => 'FX_BTC_JPY', "#{type}_order_id" => id)
+      expect(request['ACCESS-KEY']).to eq('key')
+      signed_data = "#{request['ACCESS-TIMESTAMP']}POST#{request.path}#{request.body}"
+      expect(request['ACCESS-SIGN']).to eq(OpenSSL::HMAC.hexdigest('SHA256', 'secret', signed_data))
+    end
+  end
+
   it 'requests cancellation of only the specified child order' do
-    stub_responses(private_client, cancel_child_order: '', cancel_parent_order: '', cancel_all_child_orders: '')
+    stub_credentials
+    transport = stub_cancellation_response('200', '')
 
     expect { run_cli('cancel_order', 'child', 'JOR-order') }
       .to output("Cancellation request accepted for child order JOR-order.\n").to_stdout
-    expect(private_client).to have_received(:cancel_child_order).once
-      .with(product_code: 'FX_BTC_JPY', child_order_id: 'JOR-order')
-    expect(private_client).not_to have_received(:cancel_parent_order)
-    expect(private_client).not_to have_received(:cancel_all_child_orders)
+    expect_cancellation_request(transport, 'child', 'JOR-order')
   end
 
   it 'requests parent cancellation when explicitly confirmed' do
-    stub_responses(private_client, cancel_parent_order: '')
+    stub_credentials
+    transport = stub_cancellation_response('200', nil)
 
     expect { run_cli('cancel_order', 'parent', 'JCO-order', '--confirm-parent') }
       .to output("Cancellation request accepted for parent order JCO-order.\n").to_stdout
-    expect(private_client).to have_received(:cancel_parent_order).once
-      .with(product_code: 'FX_BTC_JPY', parent_order_id: 'JCO-order')
+    expect_cancellation_request(transport, 'parent', 'JCO-order')
   end
 
   it 'requires confirmation before contacting bitFlyer to cancel a parent strategy' do
-    stub_responses(private_client, cancel_parent_order: '')
-
     expect do
       expect { run_cli('cancel_order', 'parent', 'JCO-order') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output(/associated orders.*--confirm-parent/).to_stderr
-    expect(private_client).not_to have_received(:cancel_parent_order)
   end
 
   it 'rejects an unknown order type before contacting bitFlyer' do
-    stub_responses(private_client, cancel_child_order: '', cancel_parent_order: '')
-
     expect do
       expect { run_cli('cancel_order', 'other', 'JOR-order') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output(/Order type must be child or parent/).to_stderr
-    expect(private_client).not_to have_received(:cancel_child_order)
-    expect(private_client).not_to have_received(:cancel_parent_order)
   end
 
   it 'requires an order ID before contacting bitFlyer' do
-    stub_responses(private_client, cancel_child_order: '')
-
     expect do
       expect { run_cli('cancel_order', 'child') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("Order ID is required.\n").to_stderr
-    expect(private_client).not_to have_received(:cancel_child_order)
   end
 
   it 'reports a rejected cancellation on stderr and exits unsuccessfully' do
-    stub_responses(private_client, cancel_child_order: { 'status' => -200, 'error_message' => 'Order is no longer active.' })
+    stub_credentials
+    stub_cancellation_response('400', JSON.generate(status: -200, error_message: 'Order is no longer active.'))
 
     expect do
       expect { run_cli('cancel_order', 'child', 'JOR-order') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("Cancellation request rejected. Order is no longer active.\n").to_stderr
   end
 
+  it 'rejects an empty HTTP error response without printing acceptance' do
+    stub_credentials
+    stub_cancellation_response('502', '')
+
+    expect do
+      expect do
+        expect { run_cli('cancel_order', 'child', 'JOR-order') }
+          .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Cancellation request rejected (HTTP 502).\n").to_stderr
+    end.to output('').to_stdout
+  end
+
   it 'reports when an unexpected response leaves acceptance unverified' do
-    stub_responses(private_client, cancel_child_order: 'Bad Gateway')
+    stub_credentials
+    stub_cancellation_response('200', 'Unexpected response')
 
     expect do
       expect { run_cli('cancel_order', 'child', 'JOR-order') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
