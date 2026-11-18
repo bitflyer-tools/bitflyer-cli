@@ -19,7 +19,7 @@ class SummaryCommand
     update_balance
   end
 
-  def run # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+  def run # rubocop:disable Metrics/MethodLength
     $stdout.sync = true
     print "\e[?25l"
 
@@ -33,12 +33,7 @@ class SummaryCommand
     puts "\n" * 3
 
     loop do
-      print <<~EOS
-        \e[4F\e[0JCurrent:  #{@current_price.to_i.to_s.split_by_comma}
-        Position: #{@position.average.to_s.split_by_comma} * #{@position.size.to_f}
-        Spread:   #{spread.to_s.split_by_comma.color_with_number(spread)}
-        Balance:  #{(@balance + profit).to_s.split_by_comma.ljust(15, ' ')} (#{profit.to_s.split_by_comma.color_with_number(profit)})
-      EOS
+      print frame
       sleep 0.1
     end
   rescue Interrupt
@@ -50,20 +45,24 @@ class SummaryCommand
   private
 
   def update_balance
-    @position = Position.new(http_private_client.positions)
-    @balance = http_private_client.collateral['collateral'].to_i
+    position = Position.new(http_private_client.positions)
+    balance = http_private_client.collateral['collateral'].to_i
+    @account_snapshot = [position, balance].freeze
   end
 
-  def profit
-    return 0 if @current_price.zero?
+  def frame # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+    position, balance = @account_snapshot
+    price = @current_price
+    average = position.average
+    profit = price.zero? ? 0 : position.profit(price).to_i
+    spread = price.zero? || position.flat? ? 0 : price.to_i - average
+    total = (balance + profit).to_s.split_by_comma.ljust(15)
 
-    @position.profit(@current_price).to_i
-  end
-
-  def spread
-    return 0 if @current_price.zero?
-    return 0 if @position.flat?
-
-    @current_price.to_i - @position.average
+    <<~EOS
+      \e[4F\e[0JCurrent:  #{price.to_i.to_s.split_by_comma}
+      Position: #{average.to_s.split_by_comma} * #{position.size.to_f}
+      Spread:   #{spread.to_s.split_by_comma.color_with_number(spread)}
+      Balance:  #{total} (#{profit.to_s.split_by_comma.color_with_number(profit)})
+    EOS
   end
 end

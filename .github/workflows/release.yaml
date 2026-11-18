@@ -21,7 +21,7 @@ jobs:
       id-token: write
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -36,6 +36,6 @@ jobs:
       - name: Bump version
         run: |
           gem bump --version ${{inputs.version}} --message ':tada: Bump %{name} to %{version}'
-          bundle config set frozen false && bundle install
+          bundle config set --local frozen false && bundle install
           git add . && git commit --amend --no-edit
       - uses: rubygems/release-gem@v1

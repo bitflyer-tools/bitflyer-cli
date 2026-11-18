@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'thor'
 require 'bitflyer/cli/has_http_client'
 
 class OrderByTWAPCommand
@@ -10,10 +11,11 @@ class OrderByTWAPCommand
     amount = options.amount
     number = options.number_of_times
     interval = options.interval
+    raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
 
-    number.to_i.times do |_|
+    number.to_i.times do |index|
+      sleep interval if index.positive?
       order(type, amount)
-      sleep interval
     end
   end
 
