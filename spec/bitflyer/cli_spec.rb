@@ -7,6 +7,10 @@ describe Bitflyer::Cli::Runner do
     described_class.start(args)
   end
 
+  it 'shows usage for an individual command' do
+    expect { start('help', 'order_by_best') }.to output(/order_by_best.*--amount=amount.*--type=buy\/sell/).to_stdout
+  end
+
   it 'runs cancel_all' do
     allow(CancelAllCommand).to receive(:new).and_return(command)
     start('cancel_all')
@@ -36,6 +40,16 @@ describe Bitflyer::Cli::Runner do
     start('order_by_twap', '-a', '0.01', '-t', 'sell', '-n', '3', '-i', '10')
     expect(command).to have_received(:run)
       .with(hash_including('amount' => 0.01, 'type' => 'sell', 'number_of_times' => 3, 'interval' => 10))
+  end
+
+  it 'rejects a negative TWAP interval before sending any orders' do
+    client = stub_private_client
+    stub_responses(client, send_child_order: { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' })
+
+    expect do
+      start('order_by_twap', '--amount', '0.01', '--type', 'buy', '--number-of-times', '2', '--interval', '-1')
+    end.to output(/^Invalid interval: --interval must be non-negative\.$/).to_stderr
+    expect(client).not_to have_received(:send_child_order)
   end
 
   it 'passes options to stop_by_range' do

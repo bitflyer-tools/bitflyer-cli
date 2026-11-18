@@ -25,8 +25,8 @@ class SummaryCommand
 
     Thread.new do
       loop do
-        update_balance
         sleep 5
+        update_balance
       end
     end
 
@@ -34,10 +34,10 @@ class SummaryCommand
     previous_frame = nil
 
     loop do
-      frame = summary_frame
-      if frame != previous_frame
-        print frame
-        previous_frame = frame
+      current_frame = frame
+      if current_frame != previous_frame
+        print current_frame
+        previous_frame = current_frame
       end
       sleep 0.1
     end
@@ -49,38 +49,25 @@ class SummaryCommand
 
   private
 
-  def summary_frame
-    current_spread = spread
+  def update_balance
+    position = Position.new(http_private_client.positions)
+    balance = http_private_client.collateral['collateral'].to_i
+    @account_snapshot = [position, balance].freeze
+  end
+
+  def frame # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+    position, balance = @account_snapshot
+    price = @current_price
+    average = position.average
+    profit = price.zero? ? 0 : position.profit(price).to_i
+    spread = price.zero? || average.zero? ? 0 : price.to_i - average
+    total = (balance + profit).to_s.split_by_comma.ljust(15)
 
     <<~EOS
-      \e[4F\e[0JCurrent:  #{@current_price.to_i.to_s.split_by_comma}
-      Position: #{@position.average.to_s.split_by_comma} * #{@position.size.to_f}
-      Spread:   #{current_spread.to_s.split_by_comma.color_with_number(current_spread)}
-      Balance:  #{formatted_balance}
+      \e[4F\e[0JCurrent:  #{price.to_i.to_s.split_by_comma}
+      Position: #{average.to_s.split_by_comma} * #{position.size.to_f}
+      Spread:   #{spread.to_s.split_by_comma.color_with_number(spread)}
+      Balance:  #{total} (#{profit.to_s.split_by_comma.color_with_number(profit)})
     EOS
-  end
-
-  def formatted_balance
-    current_profit = profit
-    balance = (@balance + current_profit).to_s.split_by_comma.ljust(15, ' ')
-    "#{balance} (#{current_profit.to_s.split_by_comma.color_with_number(current_profit)})"
-  end
-
-  def update_balance
-    @position = Position.new(http_private_client.positions)
-    @balance = http_private_client.collateral['collateral'].to_i
-  end
-
-  def profit
-    return 0 if @current_price.zero?
-
-    @position.profit(@current_price).to_i
-  end
-
-  def spread
-    return 0 if @current_price.zero?
-    return 0 if @position.average.to_i.zero?
-
-    @current_price.to_i - @position.average.to_i
   end
 end
