@@ -21,9 +21,9 @@ jobs:
       id-token: write
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@20eb24b0d509e2b9ed9b6d42ddfeb992915e0564 # v1.341.0
         with:
           bundler-cache: true
           ruby-version: .ruby-version
@@ -31,11 +31,13 @@ jobs:
         run: |
           git config --global user.email "unhappychoice@gmail.com"
           git config --global user.name "Yuji Ueki"
-      - name: Install gem-release
-        run: gem install gem-release
       - name: Bump version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: >-
+          bash .github/release/bump.sh "$RELEASE_VERSION" --message ':tada: Bump %{name} to %{version}'
+      - name: Update project lockfile
         run: |
-          gem bump --version ${{inputs.version}} --message ':tada: Bump %{name} to %{version}'
           bundle config set frozen false && bundle install
           git add . && git commit --amend --no-edit
-      - uses: rubygems/release-gem@v1
+      - uses: rubygems/release-gem@5c53f5308233b7c0f47411f0471b3faae6fa57b2 # v1.4.2

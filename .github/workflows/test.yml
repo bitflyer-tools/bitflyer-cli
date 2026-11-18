@@ -21,6 +21,8 @@ jobs:
         run: bundle install --jobs 4
       - name: Run lint
         run: bundle exec rubocop
+      - name: Test release version bumps
+        run: bash test/release_bump.sh
 
   test:
     runs-on: ubuntu-24.04
