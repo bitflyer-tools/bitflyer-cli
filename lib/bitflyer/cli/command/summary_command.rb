@@ -18,8 +18,8 @@ class SummaryCommand
     update_balance
   end
 
-  def run # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
-    return unless @position
+  def run # rubocop:disable Metrics/MethodLength
+    return unless @account_snapshot
 
     $stdout.sync = true
     print "\e[?25l"
@@ -34,18 +34,13 @@ class SummaryCommand
     puts "\n" * 3
 
     loop do
-      print <<~EOS
-        \e[4F\e[0JCurrent:  #{@current_price.to_i.to_s.split_by_comma}
-        Position: #{@position.average.to_s.split_by_comma} * #{@position.size.to_f}
-        Spread:   #{spread.to_s.split_by_comma.color_with_number(spread)}
-        Balance:  #{(@balance + profit).to_s.split_by_comma.ljust(15, ' ')} (#{profit.to_s.split_by_comma.color_with_number(profit)})
-      EOS
+      print frame
       sleep 0.1
     end
   rescue Interrupt
     # exit
   ensure
-    print "\e[?25h" if @position
+    print "\e[?25h" if @account_snapshot
   end
 
   private
@@ -54,20 +49,23 @@ class SummaryCommand
     position = fetch_position
     return unless position
 
-    @position = position
-    @balance = http_private_client.collateral['collateral'].to_i
+    balance = http_private_client.collateral['collateral'].to_i
+    @account_snapshot = [position, balance].freeze
   end
 
-  def profit
-    return 0 if @current_price.zero?
+  def frame # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+    position, balance = @account_snapshot
+    price = @current_price
+    average = position.average
+    profit = price.zero? ? 0 : position.profit(price).to_i
+    spread = price.zero? || average.zero? ? 0 : price.to_i - average
+    total = (balance + profit).to_s.split_by_comma.ljust(15)
 
-    @position.profit(@current_price).to_i
-  end
-
-  def spread
-    return 0 if @current_price.zero?
-    return 0 if @position.average.to_i.zero?
-
-    @current_price.to_i - @position.average.to_i
+    <<~EOS
+      \e[4F\e[0JCurrent:  #{price.to_i.to_s.split_by_comma}
+      Position: #{average.to_s.split_by_comma} * #{position.size.to_f}
+      Spread:   #{spread.to_s.split_by_comma.color_with_number(spread)}
+      Balance:  #{total} (#{profit.to_s.split_by_comma.color_with_number(profit)})
+    EOS
   end
 end

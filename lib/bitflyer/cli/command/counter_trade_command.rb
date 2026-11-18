@@ -8,6 +8,7 @@ class CounterTradeCommand
   def run # rubocop:disable Metrics/MethodLength
     position = fetch_position
     return unless position
+    return puts "You don't have any position now." if position.empty?
 
     size = position.size.abs.to_f
     type = position.size.positive? ? 'SELL' : 'BUY'

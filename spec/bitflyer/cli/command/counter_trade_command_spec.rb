@@ -51,12 +51,12 @@ describe CounterTradeCommand do
     end
   end
 
-  context 'without any position' do
+  context 'with no positions' do
     let(:positions) { [] }
 
-    it 'passes the empty list to the position model' do
-      expect(Position).to receive(:new).with([]).and_call_original
-      expect { described_class.new.run }.to output(/Clear position/).to_stdout
+    it 'prints a message without submitting an order' do
+      expect { described_class.new.run }.to output("You don't have any position now.\n").to_stdout
+      expect(private_client).not_to have_received(:send_child_order)
     end
   end
 
