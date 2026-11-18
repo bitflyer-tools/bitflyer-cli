@@ -17,10 +17,18 @@ describe SummaryCommand do
     command.run
   end
 
-  it 'loads the position and collateral on start' do
-    described_class.new
-    expect(private_client).to have_received(:positions)
-    expect(private_client).to have_received(:collateral)
+  it 'loads the account once at startup and waits five seconds between refreshes' do
+    expect(private_client).to receive(:positions).ordered
+    expect(private_client).to receive(:collateral).ordered
+    command = described_class.new
+
+    allow(Thread).to receive(:new).and_yield
+    expect(command).to receive(:sleep).with(5).ordered
+    expect(private_client).to receive(:positions).ordered
+    expect(private_client).to receive(:collateral).ordered
+    expect(command).to receive(:sleep).with(5).ordered.and_raise(Interrupt)
+
+    capture_stdout { command.run }
   end
 
   it 'prints the current price, spread and balance with profit' do
