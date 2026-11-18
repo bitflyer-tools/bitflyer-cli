@@ -44,6 +44,14 @@ describe StopByRangeCommand do
       expect(private_client).to have_received(:send_parent_order)
         .with(stop_order(side: 'SELL', trigger_price: 995_000.0, size: 0.2))
     end
+
+    context 'when the stop order is rejected' do
+      let(:response) { { 'status' => -200, 'error_message' => 'Order rejected' } }
+
+      it 'prints the API error response' do
+        expect { run }.to output("An error has occurred#{response}\n").to_stdout
+      end
+    end
   end
 
   context 'with a short position' do
