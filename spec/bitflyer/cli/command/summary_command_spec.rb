@@ -13,9 +13,7 @@ describe SummaryCommand do
   end
 
   def run_once(command)
-    allow(Thread).to receive(:new)
-    allow(command).to receive(:sleep).and_raise(Interrupt)
-    command.run
+    run_iterations(command)
   end
 
   it 'loads the account once at startup and waits five seconds between refreshes' do
@@ -99,6 +97,38 @@ describe SummaryCommand do
     expect(output).to include('Current:  0', 'Balance:  50,000')
   end
 
+  it 'draws once when consecutive iterations have the same visible values' do
+    command = described_class.new
+    executions_callback.first.call([{ 'price' => 1_010_000 }])
+
+    output = capture_stdout do
+      run_iterations(command, -> {}, -> { executions_callback.first.call([{ 'price' => 1_010_000.5 }]) }, -> {})
+    end
+
+    expect(output.scan("\e[4F\e[0J").size).to eq(1)
+    expect(output).to include('Current:  1,010,000')
+  end
+
+  it 'redraws on the next iteration after a price, position, spread or balance change' do
+    command = described_class.new
+    changes = [
+      -> { executions_callback.first.call([{ 'price' => 1_010_000 }]) },
+      -> { refresh_account(command, price: 1_000_000, size: 0.2, collateral: 50_000) },
+      -> { refresh_account(command, price: 1_005_000, size: 0.2, collateral: 50_000) },
+      -> { refresh_account(command, price: 1_005_000, size: 0.2, collateral: 60_000) }
+    ]
+
+    output = capture_stdout { run_iterations(command, *changes) }
+    frames = output.split("\e[4F\e[0J").drop(1)
+
+    expect(frames.size).to eq(5)
+    expect(frames[0]).to include('Current:  0')
+    expect(frames[1]).to include('Current:  1,010,000')
+    expect(frames[2]).to include('Position: 1,000,000 * 0.2')
+    expect(frames[3]).to match(/Spread:   \+.*5,000/)
+    expect(frames[4]).to include('Balance:  61,000')
+  end
+
   it 'renders new prices without rereading position rows' do
     command = described_class.new
     expect(positions).not_to receive(:each)
@@ -118,6 +148,25 @@ describe SummaryCommand do
     output = capture_stdout { run_once(described_class.new) }
 
     expect(output).to start_with("\e[?25l").and end_with("\e[?25h")
+  end
+
+  def run_iterations(command, *changes)
+    allow(Thread).to receive(:new)
+    allow(command).to receive(:sleep).with(0.1) do
+      raise Interrupt if changes.empty?
+
+      changes.shift.call
+    end
+    command.run
+  end
+
+  def refresh_account(command, price:, size:, collateral:)
+    stub_responses(
+      private_client,
+      positions: [position(side: 'BUY', price: price, size: size)],
+      collateral: { 'collateral' => collateral }
+    )
+    command.send(:update_balance)
   end
 
   def capture_stdout

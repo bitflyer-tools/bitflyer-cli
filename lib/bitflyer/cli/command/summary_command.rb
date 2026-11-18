@@ -31,9 +31,14 @@ class SummaryCommand
     end
 
     puts "\n" * 3
+    previous_frame = nil
 
     loop do
-      print frame
+      current_frame = frame
+      if current_frame != previous_frame
+        print current_frame
+        previous_frame = current_frame
+      end
       sleep 0.1
     end
   rescue Interrupt
