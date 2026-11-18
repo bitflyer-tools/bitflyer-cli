@@ -7,6 +7,10 @@ describe Bitflyer::Cli::Runner do
     described_class.start(args)
   end
 
+  it 'shows usage for an individual command' do
+    expect { start('help', 'order_by_best') }.to output(/order_by_best.*--amount=amount.*--type=buy\/sell/).to_stdout
+  end
+
   it 'runs cancel_all' do
     allow(CancelAllCommand).to receive(:new).and_return(command)
     start('cancel_all')
