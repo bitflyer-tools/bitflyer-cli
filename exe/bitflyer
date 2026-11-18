@@ -2,4 +2,8 @@
 
 require 'bitflyer/cli'
 
-Bitflyer::Cli::Runner.start
+begin
+  Bitflyer::Cli::Runner.start
+rescue CancelAllCommand::Rejected => e
+  abort e.message
+end
