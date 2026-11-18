@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/model/position'
 
 class CounterTradeCommand
   include HasHTTPClient

@@ -25,8 +25,8 @@ class SummaryCommand
 
     Thread.new do
       loop do
-        update_balance
         sleep 5
+        update_balance
       end
     end
 

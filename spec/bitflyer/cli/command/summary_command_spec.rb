@@ -17,10 +17,18 @@ describe SummaryCommand do
     command.run
   end
 
-  it 'loads the position and collateral on start' do
-    described_class.new
-    expect(private_client).to have_received(:positions)
-    expect(private_client).to have_received(:collateral)
+  it 'loads the account once at startup and waits five seconds between refreshes' do
+    expect(private_client).to receive(:positions).ordered
+    expect(private_client).to receive(:collateral).ordered
+    command = described_class.new
+
+    allow(Thread).to receive(:new).and_yield
+    expect(command).to receive(:sleep).with(5).ordered
+    expect(private_client).to receive(:positions).ordered
+    expect(private_client).to receive(:collateral).ordered
+    expect(command).to receive(:sleep).with(5).ordered.and_raise(Interrupt)
+
+    capture_stdout { command.run }
   end
 
   it 'prints the current price, spread and balance with profit' do
@@ -37,6 +45,21 @@ describe SummaryCommand do
     output = capture_stdout { run_once(described_class.new) }
 
     expect(output).to include('Current:  0', 'Balance:  50,000')
+  end
+
+  it 'renders new prices without rereading position rows' do
+    command = described_class.new
+    expect(positions).not_to receive(:each)
+    expect(positions).not_to receive(:inject)
+    expect(positions.first).not_to receive(:[])
+
+    executions_callback.first.call([{ 'price' => 1_010_000 }])
+    first_frame = capture_stdout { run_once(command) }
+    executions_callback.first.call([{ 'price' => 1_020_000 }])
+    second_frame = capture_stdout { run_once(command) }
+
+    expect(first_frame).to include('Position: 1,000,000 * 0.1', 'Balance:  51,000')
+    expect(second_frame).to include('Position: 1,000,000 * 0.1', 'Balance:  52,000')
   end
 
   it 'restores the cursor when interrupted' do
