@@ -3,7 +3,6 @@
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/has_realtime_client'
 require 'bitflyer/cli/ext/string'
-require 'bitflyer/cli/model/position'
 
 class SummaryCommand
   include HasHTTPClient
@@ -20,6 +19,8 @@ class SummaryCommand
   end
 
   def run
+    return unless @account_snapshot
+
     $stdout.sync = true
     print "\e[?25l"
     Thread.new { poll_account }
@@ -28,14 +29,18 @@ class SummaryCommand
   rescue Interrupt
     # exit
   ensure
-    print "\e[?25h"
+    print "\e[?25h" if @account_snapshot
   end
 
   private
 
   def render_loop
+    previous_frame = nil
+
     loop do
-      print frame
+      current_frame = frame
+      print current_frame unless current_frame == previous_frame
+      previous_frame = current_frame
       sleep 0.1
     end
   end
@@ -51,7 +56,9 @@ class SummaryCommand
   end
 
   def update_balance
-    position = Position.new(http_private_client.positions)
+    position = fetch_position
+    return unless position
+
     balance = http_private_client.collateral['collateral'].to_i
     @account_snapshot = [position, balance, false].freeze
   end
