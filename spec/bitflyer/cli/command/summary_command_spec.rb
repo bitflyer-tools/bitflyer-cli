@@ -16,6 +16,40 @@ describe SummaryCommand do
     run_iterations(command)
   end
 
+  context 'when the initial position lookup is rejected' do
+    let(:positions) { { 'status' => -200, 'error_message' => 'Invalid API key' } }
+
+    it 'reports the API error and skips account rendering' do
+      expect(Position).not_to receive(:new)
+      expect(Thread).not_to receive(:new)
+      expect { described_class.new.run }.to output(/Failed to look up positions:.*-200.*Invalid API key/).to_stderr
+      expect(private_client).not_to have_received(:collateral)
+    end
+  end
+
+  context 'without any position' do
+    let(:positions) { [] }
+
+    it 'renders the empty position' do
+      output = capture_stdout { run_once(described_class.new) }
+
+      expect(output).to include('Position: 0 * 0.0')
+    end
+  end
+
+  it 'reports a rejected refresh and keeps the last successful account data' do
+    command = described_class.new
+    stub_responses(private_client, positions: { 'status' => -200 })
+    allow(Thread).to receive(:new).and_yield
+    expect(command).to receive(:sleep).with(5).ordered
+    expect(command).to receive(:sleep).with(5).ordered.and_raise(Interrupt)
+    expect(Position).not_to receive(:new)
+
+    expect { capture_stdout { command.run } }.to output(/Failed to look up positions:.*-200/).to_stderr
+    expect(private_client).to have_received(:collateral).once
+    expect(capture_stdout { run_once(command) }).to include('Position: 1,000,000 * 0.1', 'Balance:  50,000')
+  end
+
   it 'loads the account once at startup and waits five seconds between refreshes' do
     expect(private_client).to receive(:positions).ordered
     expect(private_client).to receive(:collateral).ordered

@@ -3,7 +3,6 @@
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/has_realtime_client'
 require 'bitflyer/cli/ext/string'
-require 'bitflyer/cli/model/position'
 
 class SummaryCommand
   include HasHTTPClient
@@ -20,6 +19,8 @@ class SummaryCommand
   end
 
   def run # rubocop:disable Metrics/MethodLength
+    return unless @account_snapshot
+
     $stdout.sync = true
     print "\e[?25l"
 
@@ -44,13 +45,15 @@ class SummaryCommand
   rescue Interrupt
     # exit
   ensure
-    print "\e[?25h"
+    print "\e[?25h" if @account_snapshot
   end
 
   private
 
   def update_balance
-    position = Position.new(http_private_client.positions)
+    position = fetch_position
+    return unless position
+
     balance = http_private_client.collateral['collateral'].to_i
     @account_snapshot = [position, balance].freeze
   end
