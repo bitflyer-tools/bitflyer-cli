@@ -3,7 +3,6 @@
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/has_realtime_client'
 require 'bitflyer/cli/ext/string'
-require 'bitflyer/cli/model/position'
 
 class SummaryCommand
   include HasHTTPClient
@@ -19,7 +18,9 @@ class SummaryCommand
     update_balance
   end
 
-  def run # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+  def run # rubocop:disable Metrics/MethodLength
+    return unless @account_snapshot
+
     $stdout.sync = true
     print "\e[?25l"
 
@@ -31,39 +32,45 @@ class SummaryCommand
     end
 
     puts "\n" * 3
+    previous_frame = nil
 
     loop do
-      print <<~EOS
-        \e[4F\e[0JCurrent:  #{@current_price.to_i.to_s.split_by_comma}
-        Position: #{@position.average.to_s.split_by_comma} * #{@position.size.to_f}
-        Spread:   #{spread.to_s.split_by_comma.color_with_number(spread)}
-        Balance:  #{(@balance + profit).to_s.split_by_comma.ljust(15, ' ')} (#{profit.to_s.split_by_comma.color_with_number(profit)})
-      EOS
+      current_frame = frame
+      if current_frame != previous_frame
+        print current_frame
+        previous_frame = current_frame
+      end
       sleep 0.1
     end
   rescue Interrupt
     # exit
   ensure
-    print "\e[?25h"
+    print "\e[?25h" if @account_snapshot
   end
 
   private
 
   def update_balance
-    @position = Position.new(http_private_client.positions)
-    @balance = http_private_client.collateral['collateral'].to_i
+    position = fetch_position
+    return unless position
+
+    balance = http_private_client.collateral['collateral'].to_i
+    @account_snapshot = [position, balance].freeze
   end
 
-  def profit
-    return 0 if @current_price.zero?
+  def frame # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+    position, balance = @account_snapshot
+    price = @current_price
+    average = position.average
+    profit = price.zero? ? 0 : position.profit(price).to_i
+    spread = price.zero? || position.flat? ? 0 : price.to_i - average
+    total = (balance + profit).to_s.split_by_comma.ljust(15)
 
-    @position.profit(@current_price).to_i
-  end
-
-  def spread
-    return 0 if @current_price.zero?
-    return 0 if @position.average.to_i.zero?
-
-    @current_price.to_i - @position.average.to_i
+    <<~EOS
+      \e[4F\e[0JCurrent:  #{price.to_i.to_s.split_by_comma}
+      Position: #{average.to_s.split_by_comma} * #{position.size.to_f}
+      Spread:   #{spread.to_s.split_by_comma.color_with_number(spread)}
+      Balance:  #{total} (#{profit.to_s.split_by_comma.color_with_number(profit)})
+    EOS
   end
 end
