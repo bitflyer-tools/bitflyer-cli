@@ -1,13 +1,14 @@
 # frozen_string_literal: true
 
 require 'bitflyer/cli/has_http_client'
-require 'bitflyer/cli/model/position'
 
 class CounterTradeCommand
   include HasHTTPClient
 
   def run # rubocop:disable Metrics/MethodLength
-    position = Position.new(http_private_client.positions)
+    position = fetch_position
+    return unless position
+
     size = position.size.abs.to_f
     type = position.size.positive? ? 'SELL' : 'BUY'
     response = http_private_client.send_child_order(
