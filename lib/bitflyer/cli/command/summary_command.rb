@@ -67,7 +67,7 @@ class SummaryCommand
     position, balance, stale = @account_snapshot
     price = @current_price
     average = position.average
-    spread = spread(price, average)
+    spread = spread(position, price)
 
     <<~EOS
       \e[4F\e[0JCurrent:  #{price.to_i.to_s.split_by_comma}
@@ -88,9 +88,9 @@ class SummaryCommand
     position.profit(price).to_i
   end
 
-  def spread(price, average)
-    return 0 if price.zero? || average.zero?
+  def spread(position, price)
+    return 0 if price.zero? || position.flat?
 
-    price.to_i - average
+    price.to_i - position.average
   end
 end
