@@ -5,10 +5,12 @@ describe SummaryCommand do
   let!(:realtime_client) { stub_realtime_client }
   let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.1)] }
   let(:executions_callback) { [] }
+  let(:disconnect_callback) { [] }
 
   before do
     stub_responses(private_client, positions: positions, collateral: { 'collateral' => 50_000 })
     allow(realtime_client).to receive(:executions_fx_btc_jpy=) { |callback| executions_callback << callback }
+    allow(realtime_client).to receive(:disconnected=) { |callback| disconnect_callback << callback }
   end
 
   def run_once(command)
@@ -44,7 +46,51 @@ describe SummaryCommand do
   it 'shows no profit before any execution arrives' do
     output = capture_stdout { run_once(described_class.new) }
 
-    expect(output).to include('Current:  0', 'Balance:  50,000')
+    expect(output).to include('Current:  Stale', 'Spread:   N/A', 'Balance:  N/A (N/A)')
+  end
+
+  shared_examples 'an invalidated execution price' do
+    it 'withholds market-derived values after an account refresh until a new execution arrives' do
+      command = described_class.new
+      allow(command).to receive(:monotonic_time).and_return(100)
+      executions_callback.first.call([{ 'price' => 1_010_000 }])
+      expect(capture_stdout { run_once(command) }).to include('Balance:  51,000')
+
+      invalidate_price.call(command)
+      stub_responses(
+        private_client,
+        positions: [position(side: 'BUY', price: 1_010_000, size: 0.2)],
+        collateral: { 'collateral' => 60_000 }
+      )
+      command.send(:update_balance)
+      executions_callback.first.call([])
+
+      output = capture_stdout { run_once(command) }
+      expect(output).to include('Current:  Stale', 'Position: 1,010,000 * 0.2', 'Spread:   N/A', 'Balance:  N/A (N/A)')
+
+      executions_callback.first.call([{ 'price' => 1_020_000 }])
+      output = capture_stdout { run_once(command) }
+      expect(output).to include('Current:  1,020,000', 'Balance:  62,000')
+      expect(output).to match(/Spread:   \+.*10,000/).and match(/\(\+.*2,000/)
+    end
+  end
+
+  context 'when the WebSocket disconnects' do
+    let(:invalidate_price) { ->(_command) { disconnect_callback.first.call(nil) } }
+
+    it_behaves_like 'an invalidated execution price'
+  end
+
+  context 'when the execution feed stalls silently' do
+    let(:invalidate_price) do
+      lambda do |command|
+        allow(command).to receive(:monotonic_time).and_return(129.9)
+        expect(capture_stdout { run_once(command) }).to include('Current:  1,010,000')
+        allow(command).to receive(:monotonic_time).and_return(130)
+      end
+    end
+
+    it_behaves_like 'an invalidated execution price'
   end
 
   it 'renders new prices without rereading position rows' do

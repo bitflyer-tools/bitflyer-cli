@@ -9,38 +9,24 @@ class SummaryCommand
   include HasHTTPClient
   include HasRealtimeClient
 
-  def initialize
-    @current_price = 0.0
+  PRICE_FRESHNESS_LIMIT = 30 # seconds
 
+  def initialize
+    @execution = nil
+    realtime_client.disconnected = ->(_error) { @execution = nil }
     realtime_client.executions_fx_btc_jpy = lambda { |message|
-      message.each { |m| @current_price = m['price'].to_f }
+      execution = message.last
+      @execution = [execution['price'].to_f, monotonic_time] if execution
     }
 
     update_balance
   end
 
-  def run # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+  def run
     $stdout.sync = true
     print "\e[?25l"
-
-    Thread.new do
-      loop do
-        sleep 5
-        update_balance
-      end
-    end
-
-    puts "\n" * 3
-
-    loop do
-      print <<~EOS
-        \e[4F\e[0JCurrent:  #{@current_price.to_i.to_s.split_by_comma}
-        Position: #{@position.average.to_s.split_by_comma} * #{@position.size.to_f}
-        Spread:   #{spread.to_s.split_by_comma.color_with_number(spread)}
-        Balance:  #{(@balance + profit).to_s.split_by_comma.ljust(15, ' ')} (#{profit.to_s.split_by_comma.color_with_number(profit)})
-      EOS
-      sleep 0.1
-    end
+    refresh_balance
+    render
   rescue Interrupt
     # exit
   ensure
@@ -49,21 +35,59 @@ class SummaryCommand
 
   private
 
+  def render
+    puts "\n" * 3
+
+    loop do
+      print frame
+      sleep 0.1
+    end
+  end
+
+  def refresh_balance
+    Thread.new do
+      loop do
+        sleep 5
+        update_balance
+      end
+    end
+  end
+
   def update_balance
-    @position = Position.new(http_private_client.positions)
-    @balance = http_private_client.collateral['collateral'].to_i
+    position = Position.new(http_private_client.positions)
+    balance = http_private_client.collateral['collateral'].to_i
+    @account = [position, balance]
   end
 
-  def profit
-    return 0 if @current_price.zero?
-
-    @position.profit(@current_price).to_i
+  def frame
+    position, balance = @account
+    price = fresh_price
+    <<~EOS
+      \e[4F\e[0JCurrent:  #{price ? price.to_i.to_s.split_by_comma : 'Stale'}
+      Position: #{position.average.to_s.split_by_comma} * #{position.size.to_f}
+      #{price ? marked_values(price, position, balance) : "Spread:   N/A\nBalance:  N/A (N/A)"}
+    EOS
   end
 
-  def spread
-    return 0 if @current_price.zero?
-    return 0 if @position.average.to_i.zero?
+  def marked_values(price, position, balance)
+    profit = position.profit(price).to_i
+    spread = position.average.zero? ? 0 : price.to_i - position.average
+    <<~EOS.chomp
+      Spread:   #{colored_amount(spread)}
+      Balance:  #{(balance + profit).to_s.split_by_comma.ljust(15, ' ')} (#{colored_amount(profit)})
+    EOS
+  end
 
-    @current_price.to_i - @position.average.to_i
+  def colored_amount(amount)
+    amount.to_s.split_by_comma.color_with_number(amount)
+  end
+
+  def fresh_price
+    price, received_at = @execution
+    price if received_at && monotonic_time - received_at < PRICE_FRESHNESS_LIMIT
+  end
+
+  def monotonic_time
+    Process.clock_gettime(Process::CLOCK_MONOTONIC)
   end
 end
