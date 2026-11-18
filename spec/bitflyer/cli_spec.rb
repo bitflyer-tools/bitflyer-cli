@@ -42,6 +42,15 @@ describe Bitflyer::Cli::Runner do
       .with(hash_including('amount' => 0.01, 'type' => 'sell', 'number_of_times' => 3, 'interval' => 10))
   end
 
+  it 'rejects a fractional TWAP order count without sending orders' do
+    private_client = stub_private_client
+    allow(private_client).to receive(:send_child_order)
+
+    expect { start('order_by_twap', '-a', '0.01', '-t', 'buy', '--number-of-times', '1.9', '-i', '0') }
+      .to output(/--number-of-times must be a whole number/).to_stderr
+    expect(private_client).not_to have_received(:send_child_order)
+  end
+
   it 'rejects a negative TWAP interval before sending any orders' do
     client = stub_private_client
     stub_responses(client, send_child_order: { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' })
