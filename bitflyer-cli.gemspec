@@ -6,7 +6,7 @@ require 'bitflyer/cli/version'
 Gem::Specification.new do |spec|
   spec.name                              = 'bitflyer-cli'
   spec.version                           = Bitflyer::Cli::VERSION
-  spec.required_ruby_version             = '>= 3.1'
+  spec.required_ruby_version             = '>= 3.3'
   spec.authors                           = ['Yuji Ueki']
   spec.email                             = ['unhappychoice@gmail.com']
   spec.summary                           = 'CLI tool for Bitflyer'
@@ -24,7 +24,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'colorize', '>= 0.8.1', '< 1.2.0'
   spec.add_dependency 'thor', '>= 0.20', '< 1.6'
 
-  spec.add_development_dependency 'bundler', '~> 2.0'
+  spec.add_development_dependency 'bundler', '~> 4.1'
   spec.add_development_dependency 'rake'
   spec.add_development_dependency 'rspec'
   spec.add_development_dependency 'rubocop'

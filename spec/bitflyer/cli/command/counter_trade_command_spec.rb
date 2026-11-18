@@ -1,4 +1,37 @@
 require 'spec_helper'
+require 'open3'
+require 'rbconfig'
+
+describe 'Loading the counter trade command on its own' do
+  it 'submits an order for an open position without loading another command' do
+    script = <<~'RUBY'
+      $LOADED_FEATURES << 'bitflyer.rb'
+      require 'bitflyer/cli/command/counter_trade_command'
+
+      client = Object.new
+      def client.positions
+        [{ 'side' => 'BUY', 'size' => 0.1 }]
+      end
+
+      def client.send_child_order(product_code:, child_order_type:, side:, size:)
+        { 'child_order_acceptance_id' => 'accepted' }
+      end
+
+      command = CounterTradeCommand.new
+      command.define_singleton_method(:http_private_client) { client }
+      command.run
+
+      other_commands = $LOADED_FEATURES.grep(%r{/bitflyer/cli/command/(?!counter_trade_command\.rb\z)})
+      abort "Loaded other commands: #{other_commands.join(', ')}" unless other_commands.empty?
+    RUBY
+
+    lib = File.expand_path('../../../../lib', __dir__)
+    stdout, stderr, status = Open3.capture3(RbConfig.ruby, '-I', lib, '-e', script)
+
+    expect(status.success?).to be(true), stdout + stderr
+    expect(stdout).to eq("Clear position SELL / 0.1\n")
+  end
+end
 
 describe CounterTradeCommand do
   let!(:private_client) { stub_private_client }
@@ -6,6 +39,15 @@ describe CounterTradeCommand do
 
   before do
     stub_responses(private_client, positions: positions, send_child_order: accepted)
+  end
+
+  context 'with no positions' do
+    let(:positions) { [] }
+
+    it 'prints a message without submitting an order' do
+      expect { described_class.new.run }.to output("You don't have any position now.\n").to_stdout
+      expect(private_client).not_to have_received(:send_child_order)
+    end
   end
 
   context 'with a long position' do

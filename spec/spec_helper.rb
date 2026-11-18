@@ -1,3 +1,14 @@
+if ENV['COVERAGE'] == 'true'
+  require 'simplecov'
+
+  SimpleCov.start do
+    track_files 'lib/**/*.rb'
+    add_filter { |file| !file.filename.start_with?(File.join(root, 'lib/')) }
+    use_merging false
+    minimum_coverage 95
+  end
+end
+
 $LOAD_PATH.unshift File.expand_path('../../lib', __FILE__)
 require 'bitflyer/cli'
 

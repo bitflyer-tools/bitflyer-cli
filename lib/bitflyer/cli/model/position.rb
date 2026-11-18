@@ -4,35 +4,35 @@ require 'bigdecimal'
 require 'bigdecimal/util'
 
 class Position
+  attr_reader :size, :sum
+
   def initialize(positions)
-    @positions = positions
+    @empty = positions.empty?
+    @size = @sum = @signed_entry_value = 0.to_d
+    positions.each { |position| accumulate(position) }
   end
 
   def profit(current_price)
-    @positions.inject('0'.to_d) do |sum, position|
-      sum + ((current_price - position['price'].to_s.to_d) * position['size'].to_s.to_d * coefficient(position))
-    end
+    (current_price * size) - @signed_entry_value
   end
 
   def average
-    @positions.size.positive? ? (sum / size.abs).to_i : 0
-  end
-
-  def sum
-    @positions.inject('0'.to_d) { |sum, position| sum + (position['price'].to_s.to_d * position['size'].to_s.to_d) }
+    empty? ? 0 : (sum / size.abs).to_i
   end
 
   def empty?
-    @positions.empty?
-  end
-
-  def size
-    @positions.inject('0'.to_d) { |sum, position| sum + (position['size'].to_s.to_d * coefficient(position)) }
+    @empty
   end
 
   private
 
-  def coefficient(position)
-    position['side'] == 'BUY' ? 1.0 : -1.0
+  def accumulate(position)
+    quantity = position['size'].to_s.to_d
+    entry_value = position['price'].to_s.to_d * quantity
+    sign = position['side'] == 'BUY' ? 1 : -1
+
+    @size += quantity * sign
+    @sum += entry_value
+    @signed_entry_value += entry_value * sign
   end
 end
