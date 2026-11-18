@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'thor'
 require 'bitflyer/cli/has_http_client'
 
 class OrderByTWAPCommand
@@ -7,7 +8,7 @@ class OrderByTWAPCommand
 
   def run(options)
     interval = options.interval
-    raise ArgumentError, 'interval must be nonnegative' if interval.negative?
+    raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
 
     deadline = monotonic_time
     options.number_of_times.to_i.times do |index|
