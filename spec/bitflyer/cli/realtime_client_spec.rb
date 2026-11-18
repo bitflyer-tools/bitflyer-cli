@@ -8,13 +8,61 @@ describe Bitflyer::Cli::RealtimeClient do
   let(:root) { certificate('Test CA', root_key) }
   let(:server_key) { OpenSSL::PKey::RSA.new(2048) }
   let(:hostname) { 'localhost' }
+  let(:transport_class) { described_class.const_get(:VerifiedWebSocket) }
 
   before do
     stub_const('Bitflyer::Realtime::SOCKET_HOST', "https://localhost:#{server.addr[1]}")
-    allow_any_instance_of(described_class.const_get(:VerifiedWebSocket)).to receive(:start_monitoring)
+    allow_any_instance_of(transport_class).to receive(:start_monitoring)
     store = OpenSSL::X509::Store.new
     store.add_cert(root)
     stub_const('OpenSSL::SSL::SSLContext::DEFAULT_CERT_STORE', store)
+  end
+
+  it 'keeps a pending upgrade across a monitor tick and reconnects after the peer closes' do
+    ticks = Queue.new
+    steps = Queue.new
+    upgrades = Queue.new
+    disconnected = Queue.new
+    monitor = nil
+    allow_any_instance_of(transport_class).to receive(:start_monitoring).and_wrap_original do |start|
+      monitor = start.call
+    end
+    allow_any_instance_of(transport_class).to receive(:sleep) do
+      ticks << true
+      steps.pop
+    end
+
+    with_tls_server(connections: 2, upgrades: upgrades) do |requests, ready|
+      client = described_class.new
+      transport = client.websocket_client
+      transport.disconnected = ->(error) { disconnected << error }
+      client.executions_fx_btc_jpy = ->(_execution) {}
+      connection = transport.websocket_client
+
+      Timeout.timeout(5) do
+        expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
+        ticks.pop
+        steps << true
+        ticks.pop
+        expect(transport.websocket_client).to equal(connection)
+        expect(connection).not_to be_open
+
+        upgrades << true
+        ready << true
+        disconnected.pop
+        steps << true
+        expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
+        ticks.pop
+        expect(transport.websocket_client).not_to equal(connection)
+
+        upgrades << true
+        ready << true
+        disconnected.pop
+      end
+    ensure
+      monitor&.kill&.join
+      transport&.websocket_client&.close
+    end
   end
 
   after { server.close }
@@ -56,24 +104,27 @@ describe Bitflyer::Cli::RealtimeClient do
     end
   end
 
-  def with_tls_server(issuer: root, issuer_key: root_key)
+  def with_tls_server(issuer: root, issuer_key: root_key, connections: 1, upgrades: nil)
     context = OpenSSL::SSL::SSLContext.new
     context.cert = certificate(hostname, server_key, issuer: issuer, issuer_key: issuer_key)
     context.key = server_key
     requests = Queue.new
     ready = Queue.new
-    worker = Thread.new { serve_execution(context, requests, ready) }
+    worker = Thread.new do
+      connections.times { serve_execution(context, requests, ready, upgrades) }
+    end
     yield requests, ready
   ensure
     worker&.kill&.join
   end
 
-  def serve_execution(context, requests, ready)
+  def serve_execution(context, requests, ready, upgrades)
     socket = OpenSSL::SSL::SSLServer.new(server, context).accept
     request = socket.gets("\r\n\r\n")
     requests << request
     handshake = WebSocket::Handshake::Server.new
     handshake << request
+    upgrades&.pop
     socket.write(handshake.to_s)
     ready.pop
     socket.write(WebSocket::Frame::Outgoing::Server.new(data: '0{}', type: :text, version: handshake.version).to_s)

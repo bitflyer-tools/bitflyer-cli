@@ -20,6 +20,12 @@ module Bitflyer
           @websocket_client = TLSConnection.new(endpoint)
           @websocket_client.start(self)
         end
+
+        def reconnect
+          return if @websocket_client&.connecting?
+
+          super
+        end
       end
 
       class TLSConnection
@@ -44,6 +50,10 @@ module Bitflyer
 
         def open?
           !@socket.closed? && @driver.state == :open
+        end
+
+        def connecting?
+          !@socket.closed? && @driver.state == :connecting
         end
 
         def send(message)
