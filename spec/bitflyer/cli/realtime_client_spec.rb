@@ -18,7 +18,7 @@ describe Bitflyer::Cli::RealtimeClient do
     stub_const('OpenSSL::SSL::SSLContext::DEFAULT_CERT_STORE', store)
   end
 
-  it 'keeps a pending upgrade across a monitor tick and reconnects after the peer closes' do
+  it 'keeps a pending upgrade and retries a DNS failure after the peer closes' do
     ticks = Queue.new
     steps = Queue.new
     upgrades = Queue.new
@@ -50,6 +50,20 @@ describe Bitflyer::Cli::RealtimeClient do
         upgrades << true
         ready << true
         disconnected.pop
+        dns_error = SocketError.new('Temporary failure in name resolution')
+        allow(TCPSocket).to receive(:new).and_wrap_original do |connect, *args|
+          if dns_error
+            error = dns_error
+            dns_error = nil
+            raise error
+          end
+
+          connect.call(*args)
+        end
+        steps << true
+        ticks.pop
+        expect(transport.websocket_client).to equal(connection)
+
         steps << true
         expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
         ticks.pop
