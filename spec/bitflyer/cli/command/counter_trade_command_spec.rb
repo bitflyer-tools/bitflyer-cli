@@ -41,6 +41,16 @@ describe CounterTradeCommand do
     stub_responses(private_client, positions: positions, send_child_order: accepted)
   end
 
+  context 'when the position lookup is rejected' do
+    let(:positions) { { 'status' => -200, 'error_message' => 'Invalid API key' } }
+
+    it 'reports the API error without constructing a position or sending an order' do
+      expect(Position).not_to receive(:new)
+      expect { described_class.new.run }.to output(/Failed to look up positions:.*-200.*Invalid API key/).to_stderr
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+  end
+
   context 'with no positions' do
     let(:positions) { [] }
 

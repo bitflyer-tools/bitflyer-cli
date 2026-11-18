@@ -17,8 +17,8 @@ module ClientDoubles
   end
 
   def stub_realtime_client
-    instance_double(Bitflyer::Realtime::Client, :executions_fx_btc_jpy= => nil).tap do |client|
-      allow(Bitflyer).to receive(:realtime_client).and_return(client)
+    instance_double(Bitflyer::Cli::RealtimeClient, :executions_fx_btc_jpy= => nil).tap do |client|
+      allow(Bitflyer::Cli::RealtimeClient).to receive(:new).and_return(client)
     end
   end
 

@@ -55,11 +55,14 @@ describe OrderByTWAPCommand do
     end
   end
 
-  context 'when an order is rejected' do
-    let(:response) { { 'status' => -200 } }
+  context 'when requests finish immediately' do
+    let(:request_durations) { [0, 0, 0] }
 
-    it 'prints the error response' do
-      expect { run }.to output(/An error has occurred/).to_stdout
+    it 'waits the full interval only between orders' do
+      expect { run }.to output.to_stdout
+      expect(submission_times).to eq([0, 10, 20])
+      expect(command).to have_received(:sleep).with(10).twice
+      expect(command).to have_received(:sleep).twice
     end
   end
 

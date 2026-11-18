@@ -10,8 +10,9 @@ class OrderByTWAPCommand
     interval = options.interval
     raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
 
+    number = whole_order_count(options.number_of_times)
     deadline = monotonic_time
-    options.number_of_times.to_i.times do |index|
+    number.times do |index|
       deadline = wait_for_submission(deadline, interval) if index.positive?
       order(options.type, options.amount)
       deadline += interval
@@ -19,6 +20,13 @@ class OrderByTWAPCommand
   end
 
   private
+
+  def whole_order_count(number)
+    count = number.to_i
+    raise Thor::MalformattedArgumentError, '--number-of-times must be a whole number' unless number == count
+
+    count
+  end
 
   def monotonic_time
     Process.clock_gettime(Process::CLOCK_MONOTONIC)
