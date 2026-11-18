@@ -37,5 +37,6 @@ jobs:
         run: |
           gem bump --version ${{inputs.version}} --message ':tada: Bump %{name} to %{version}'
           bundle config set --local frozen false && bundle install
+          BUNDLE_GEMFILE=gemfiles/with_coverage/Gemfile BUNDLE_FROZEN=false bundle install
           git add . && git commit --amend --no-edit
       - uses: rubygems/release-gem@v1

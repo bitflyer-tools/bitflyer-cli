@@ -3,4 +3,5 @@ source 'https://rubygems.org'
 # Specify your gem's dependencies in bitflyer-cli.gemspec
 gemspec
 
-gem 'simplecov', '~> 1.3', require: false
+# Precompiled Prism gems require Ruby 3.3 or newer.
+gem 'prism', force_ruby_platform: true
