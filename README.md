@@ -14,10 +14,10 @@ bitflyer-cli is a CLI tool for [Bitflyer](https://bitflyer.jp/) FXBTC.
 gem install bitflyer-cli
 ```
 
-Set the `BITFLYER_API_TOKEN` and `BITFLYER_API_SECRET` environment variable.
+Set the `BITFLYER_API_KEY` and `BITFLYER_API_SECRET` environment variables.
 
 ```sh
-export BITFLYER_API_TOKEN=your-bitflyer-api-token
+export BITFLYER_API_KEY=your-bitflyer-api-key
 export BITFLYER_API_SECRET=your-bitflyer-api-secret
 ```
 
