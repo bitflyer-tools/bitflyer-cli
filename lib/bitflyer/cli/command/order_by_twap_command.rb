@@ -6,18 +6,30 @@ class OrderByTWAPCommand
   include HasHTTPClient
 
   def run(options)
-    type = options.type
-    amount = options.amount
-    number = options.number_of_times
     interval = options.interval
+    raise ArgumentError, 'interval must be nonnegative' if interval.negative?
 
-    number.to_i.times do |_|
-      order(type, amount)
-      sleep interval
+    deadline = monotonic_time
+    options.number_of_times.to_i.times do |index|
+      deadline = wait_for_submission(deadline, interval) if index.positive?
+      order(options.type, options.amount)
+      deadline += interval
     end
   end
 
   private
+
+  def monotonic_time
+    Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  end
+
+  def wait_for_submission(deadline, interval)
+    now = monotonic_time
+    deadline = now + interval if deadline < now
+    remaining = deadline - now
+    sleep remaining if remaining.positive?
+    deadline
+  end
 
   def order(type, amount) # rubocop:disable Metrics/MethodLength
     response = http_private_client.send_child_order(
