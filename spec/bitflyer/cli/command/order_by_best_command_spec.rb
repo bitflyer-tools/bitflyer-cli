@@ -25,6 +25,22 @@ describe OrderByBestCommand do
     expect(private_client).to have_received(:send_child_order).with(hash_including(side: 'SELL', price: 1_000_100))
   end
 
+  it 'places an uppercase BUY limit order at the best bid' do
+    expect { run('BUY') }.to output.to_stdout
+    expect(private_client).to have_received(:send_child_order).with(hash_including(side: 'BUY', price: 1_000_000))
+  end
+
+  it 'places an uppercase SELL limit order at the best ask' do
+    expect { run('SELL') }.to output.to_stdout
+    expect(private_client).to have_received(:send_child_order).with(hash_including(side: 'SELL', price: 1_000_100))
+  end
+
+  it 'rejects an invalid side before reading the ticker or submitting an order' do
+    expect { run('hold') }.to raise_error(Thor::Error, 'Order type must be buy or sell')
+    expect(public_client).not_to have_received(:ticker)
+    expect(private_client).not_to have_received(:send_child_order)
+  end
+
   it 'reads the FX_BTC_JPY ticker' do
     expect { run('buy') }.to output.to_stdout
     expect(public_client).to have_received(:ticker).with(product_code: 'FX_BTC_JPY')
