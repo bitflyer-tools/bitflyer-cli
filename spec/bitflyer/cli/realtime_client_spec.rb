@@ -67,6 +67,32 @@ describe Bitflyer::Cli::RealtimeClient do
 
   after { server.close }
 
+  it 'closes a stalled upgrade and delivers executions after reconnecting' do
+    stub_const('Bitflyer::Cli::RealtimeClient::TLSConnection::UPGRADE_TIMEOUT', 1)
+    upgrades = Queue.new
+    disconnected = Queue.new
+    executions = Queue.new
+    upgrades << false << true
+
+    with_tls_server(connections: 2, upgrades: upgrades) do |requests, ready|
+      client = described_class.new
+      transport = client.websocket_client
+      transport.disconnected = ->(error) { disconnected << error }
+      client.executions_fx_btc_jpy = ->(batch) { executions << batch }
+
+      Timeout.timeout(5) do
+        expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
+        expect(disconnected.pop).to have_attributes(message: 'WebSocket upgrade timed out')
+        transport.reconnect
+        expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
+        ready << true
+        expect(executions.pop).to eq([{ 'price' => 1_010_000 }])
+      end
+    ensure
+      transport&.websocket_client&.close
+    end
+  end
+
   it 'delivers executions from a trusted peer for the endpoint hostname' do
     with_tls_server do |requests, ready|
       stub_responses(stub_private_client, positions: [], collateral: { 'collateral' => 0 })
@@ -124,7 +150,10 @@ describe Bitflyer::Cli::RealtimeClient do
     requests << request
     handshake = WebSocket::Handshake::Server.new
     handshake << request
-    upgrades&.pop
+    if upgrades&.pop == false
+      socket.write("HTTP/1.1 101 Switching Protocols\r\n")
+      return socket.read
+    end
     socket.write(handshake.to_s)
     ready.pop
     socket.write(WebSocket::Frame::Outgoing::Server.new(data: '0{}', type: :text, version: handshake.version).to_s)

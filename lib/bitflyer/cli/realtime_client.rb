@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'bitflyer'
+require 'io/wait'
 require 'openssl'
 require 'socket'
 require 'uri'
@@ -29,6 +30,8 @@ module Bitflyer
       end
 
       class TLSConnection
+        UPGRADE_TIMEOUT = 10
+
         attr_reader :url
 
         def initialize(endpoint)
@@ -93,10 +96,26 @@ module Bitflyer
         end
 
         def read_messages(transport)
+          deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + UPGRADE_TIMEOUT
+          @driver.parse(read_upgrade(deadline)) while connecting?
           @driver.parse(@socket.readpartial(4096)) until @socket.closed?
         rescue IOError, SystemCallError, OpenSSL::SSL::SSLError => e
           close
           transport.handle_close(error: e)
+        end
+
+        def read_upgrade(deadline)
+          loop do
+            remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+            raise IOError, 'WebSocket upgrade timed out' unless remaining.positive?
+
+            case data = @socket.read_nonblock(4096, exception: false)
+            when :wait_readable then @socket.to_io.wait_readable(remaining)
+            when :wait_writable then @socket.to_io.wait_writable(remaining)
+            when nil then raise EOFError
+            else return data
+            end
+          end
         end
       end
 
