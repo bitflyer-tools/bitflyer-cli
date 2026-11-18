@@ -91,7 +91,7 @@ describe 'bitflyer executable' do
     end.to output("Cancellation request rejected. Order is no longer active.\n").to_stderr
   end
 
-  it 'rejects an empty HTTP error response without printing acceptance' do
+  it 'reports an empty HTTP 502 as unverified without printing acceptance' do
     stub_credentials
     stub_cancellation_response('502', '')
 
@@ -99,8 +99,30 @@ describe 'bitflyer executable' do
       expect do
         expect { run_cli('cancel_order', 'child', 'JOR-order') }
           .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-      end.to output("Cancellation request rejected (HTTP 502).\n").to_stderr
+      end.to output("Could not verify cancellation acceptance from bitFlyer (HTTP 502).\n").to_stderr
     end.to output('').to_stdout
+  end
+
+  it 'reports HTTP 503 as unverified even if the body contains an API error' do
+    stub_credentials
+    stub_cancellation_response('503', JSON.generate(status: -200, error_message: 'Service unavailable.'))
+
+    expect do
+      expect { run_cli('cancel_order', 'parent', 'JCO-order', '--confirm-parent') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not verify cancellation acceptance from bitFlyer (HTTP 503).\n").to_stderr
+  end
+
+  it 'reports a read timeout as unverified without retrying cancellation' do
+    stub_credentials
+    transport = stub_cancellation_response('200', nil)
+    allow(transport).to receive(:request).and_raise(Net::ReadTimeout)
+
+    expect do
+      expect { run_cli('cancel_order', 'child', 'JOR-order') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not verify cancellation acceptance from bitFlyer.\n").to_stderr
+    expect(transport).to have_received(:request).once
   end
 
   it 'reports when an unexpected response leaves acceptance unverified' do

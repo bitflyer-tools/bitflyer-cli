@@ -52,8 +52,10 @@ bitflyer cancel_order parent JCO20150925-055555-022222 --confirm-parent
 
 Canceling a parent strategy also cancels its associated orders. The required
 `--confirm-parent` flag works in scripts without an interactive prompt.
-The CLI reports when bitFlyer accepts the request and exits unsuccessfully on
-rejection. Run `bitflyer open_orders` again to check the order's status.
+The CLI reports when bitFlyer accepts or rejects the request. Network errors
+and HTTP 5xx responses leave acceptance unverified. Rejected and unverified
+requests exit unsuccessfully. Run `bitflyer open_orders` again to check the
+order's status.
 
 ## Contributing
 

@@ -8,6 +8,8 @@ class CancelOrderCommand
 
   class Failed < StandardError; end
 
+  UNVERIFIED = 'Could not verify cancellation acceptance from bitFlyer.'
+
   def run(type, id, confirm_parent: false)
     validate_order(type, id, confirm_parent)
     response = cancel(type, id)
@@ -29,15 +31,17 @@ class CancelOrderCommand
   def cancel(type, id)
     client = CancellationClient.new(api_key, api_secret)
     client.post("/v1/me/cancel#{type}order", 'product_code' => 'FX_BTC_JPY', "#{type}_order_id" => id)
+  rescue Timeout::Error, SocketError, SystemCallError, IOError,
+         OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError
+    raise Failed, UNVERIFIED
   end
 
   def failure_message(response)
-    body = parse_body(response.body)
-    message = api_error(body)
-    return message if message
-    return "Cancellation request rejected (HTTP #{response.code})." unless response.code == '200'
+    if response.code.to_i.between?(500, 599)
+      return "Could not verify cancellation acceptance from bitFlyer (HTTP #{response.code})."
+    end
 
-    'Could not verify cancellation acceptance from bitFlyer.'
+    api_error(parse_body(response.body)) || UNVERIFIED
   end
 
   def parse_body(body)
