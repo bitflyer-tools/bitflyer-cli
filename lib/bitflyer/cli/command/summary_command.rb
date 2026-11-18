@@ -63,7 +63,7 @@ class SummaryCommand
     price = @current_price
     average = position.average
     profit = price.zero? ? 0 : position.profit(price).to_i
-    spread = price.zero? || average.zero? ? 0 : price.to_i - average
+    spread = price.zero? || position.flat? ? 0 : price.to_i - average
     total = (balance + profit).to_s.split_by_comma.ljust(15)
 
     <<~EOS
