@@ -21,9 +21,7 @@ class IFDOCOByRangeCommand
     if response['parent_order_acceptance_id'].nil?
       puts "An error has occurred#{response}"
     else
-      puts "Send market order #{side} / #{size.to_f}"
-      puts "Set limit order #{side} / #{profit_price} / #{size.to_f}"
-      puts "Set stop order #{side} / #{loss_price} / #{size.to_f}"
+      print_confirmation(request.fetch(:parameters))
     end
   end
 
@@ -54,6 +52,13 @@ class IFDOCOByRangeCommand
     [profit_price, loss_price]
   rescue FloatDomainError
     raise Thor::Error, 'Exit prices must be finite.'
+  end
+
+  def print_confirmation(parameters)
+    market, limit, stop = parameters
+    puts "Send market order #{market[:side]} / #{market[:size].to_f}"
+    puts "Set limit order #{limit[:side]} / #{limit[:price]} / #{limit[:size].to_f}"
+    puts "Set stop order #{stop[:side]} / #{stop[:trigger_price]} / #{stop[:size].to_f}"
   end
 
   def request(side:, size:, profit_price:, loss_price:) # rubocop:disable Metrics/MethodLength
