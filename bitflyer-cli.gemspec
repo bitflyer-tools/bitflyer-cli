@@ -23,8 +23,8 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'bigdecimal'
   spec.add_dependency 'colorize', '>= 0.8.1', '< 1.2.0'
   spec.add_dependency 'thor', '>= 0.20', '< 1.6'
+  spec.add_dependency 'websocket-driver', '~> 0.9.0'
 
-  spec.add_development_dependency 'bundler', '~> 2.0'
   spec.add_development_dependency 'rake'
   spec.add_development_dependency 'rspec'
   spec.add_development_dependency 'rubocop'

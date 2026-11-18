@@ -38,7 +38,18 @@ describe Position do
 
     it { expect(model.size).to eq(0.2) }
     it { expect(model.sum).to eq(410_000) }
-    it { expect(model.average).to eq(2_050_000) }
+    it { expect(model.average).to eq(950_000) }
+    it { expect(model.profit(model.average)).to eq(0) }
     it { expect(model.profit(1_020_000)).to eq(14_000) }
+  end
+
+  context 'with offsetting positions' do
+    let(:positions) do
+      [position(side: 'BUY', price: 1_000_000, size: 0.1), position(side: 'SELL', price: 1_100_000, size: 0.1)]
+    end
+
+    it { expect(model.size).to eq(0) }
+    it { expect(model.average).to eq(0) }
+    it { expect(model.profit(1_020_000)).to eq(10_000) }
   end
 end
