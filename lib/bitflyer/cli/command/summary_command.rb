@@ -56,22 +56,23 @@ class SummaryCommand
   def update_balance
     position = Position.new(http_private_client.positions)
     balance = http_private_client.collateral['collateral'].to_i
-    @account = [position, balance]
+    @account_snapshot = [position, balance].freeze
   end
 
   def frame
-    position, balance = @account
+    position, balance = @account_snapshot
     price = fresh_price
+    average = position.average
     <<~EOS
       \e[4F\e[0JCurrent:  #{price ? price.to_i.to_s.split_by_comma : 'Stale'}
-      Position: #{position.average.to_s.split_by_comma} * #{position.size.to_f}
-      #{price ? marked_values(price, position, balance) : "Spread:   N/A\nBalance:  N/A (N/A)"}
+      Position: #{average.to_s.split_by_comma} * #{position.size.to_f}
+      #{price ? marked_values(price, position, balance, average) : "Spread:   N/A\nBalance:  N/A (N/A)"}
     EOS
   end
 
-  def marked_values(price, position, balance)
+  def marked_values(price, position, balance, average)
     profit = position.profit(price).to_i
-    spread = position.average.zero? ? 0 : price.to_i - position.average
+    spread = average.zero? ? 0 : price.to_i - average
     <<~EOS.chomp
       Spread:   #{colored_amount(spread)}
       Balance:  #{(balance + profit).to_s.split_by_comma.ljust(15, ' ')} (#{colored_amount(profit)})

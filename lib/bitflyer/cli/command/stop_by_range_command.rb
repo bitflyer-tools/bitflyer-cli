@@ -7,6 +7,8 @@ class StopByRangeCommand
   include HasHTTPClient
 
   def run(options) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+    raise ArgumentError, 'Range must be positive' unless options.range.positive?
+
     position = Position.new(http_private_client.positions)
     return puts "You don't have any position now." if position.empty?
 
