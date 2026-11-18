@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'bitflyer/cli/has_http_client'
-require 'bitflyer/cli/model/position'
 
 class StopByRangeCommand
   include HasHTTPClient
@@ -9,7 +8,9 @@ class StopByRangeCommand
   def run(options) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     raise ArgumentError, 'Range must be positive' unless options.range.positive?
 
-    position = Position.new(http_private_client.positions)
+    position = fetch_position
+    return unless position
+
     return puts "You don't have any position now." if position.flat?
 
     side = position.size.positive? ? 'SELL' : 'BUY'

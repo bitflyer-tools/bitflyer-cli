@@ -29,6 +29,16 @@ describe StopByRangeCommand do
     end
   end
 
+  context 'when the position lookup is rejected' do
+    let(:positions) { { 'status' => -200 } }
+
+    it 'reports the API status without constructing a position or sending an order' do
+      expect(Position).not_to receive(:new)
+      expect { run }.to output(/Failed to look up positions:.*-200/).to_stderr
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+  end
+
   context 'with a long position' do
     let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.2)] }
 
@@ -43,6 +53,14 @@ describe StopByRangeCommand do
       expect { run }.to output("Set stop order SELL / 995000.0 / 0.2\n").to_stdout
       expect(private_client).to have_received(:send_parent_order)
         .with(stop_order(side: 'SELL', trigger_price: 995_000.0, size: 0.2))
+    end
+
+    context 'when the stop order is rejected' do
+      let(:response) { { 'status' => -200, 'error_message' => 'Order rejected' } }
+
+      it 'prints the API error response' do
+        expect { run }.to output("An error has occurred#{response}\n").to_stdout
+      end
     end
   end
 
