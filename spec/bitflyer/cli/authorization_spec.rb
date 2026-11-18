@@ -18,6 +18,14 @@ describe Authorization do
 
     it { expect(authorization.api_key).to eq('key') }
     it { expect(authorization.api_secret).to eq('secret') }
+
+    it 'passes the API key and secret to the private HTTP client factory' do
+      command = Class.new { include HasHTTPClient }.new
+      client = double('private HTTP client')
+      allow(Bitflyer).to receive(:http_private_client).with('key', 'secret').and_return(client)
+
+      expect(command.http_private_client).to be(client)
+    end
   end
 
   context 'without credentials' do

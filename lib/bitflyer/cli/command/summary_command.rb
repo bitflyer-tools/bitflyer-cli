@@ -35,7 +35,7 @@ class SummaryCommand
 
   def render_loop
     loop do
-      print summary
+      print frame
       sleep 0.1
     end
   end
@@ -45,25 +45,26 @@ class SummaryCommand
       sleep 5
       update_balance
     rescue IOError, Timeout::Error, SocketError, SystemCallError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse
-      position, balance = @account
-      @account = [position, balance, true]
+      position, balance = @account_snapshot
+      @account_snapshot = [position, balance, true].freeze
     end
   end
 
   def update_balance
     position = Position.new(http_private_client.positions)
     balance = http_private_client.collateral['collateral'].to_i
-    @account = [position, balance, false]
+    @account_snapshot = [position, balance, false].freeze
   end
 
-  def summary
-    position, balance, stale = @account
+  def frame
+    position, balance, stale = @account_snapshot
     price = @current_price
-    spread = spread(position, price)
+    average = position.average
+    spread = spread(price, average)
 
     <<~EOS
       \e[4F\e[0JCurrent:  #{price.to_i.to_s.split_by_comma}
-      Position: #{position.average.to_s.split_by_comma} * #{position.size.to_f}
+      Position: #{average.to_s.split_by_comma} * #{position.size.to_f}
       Spread:   #{spread.to_s.split_by_comma.color_with_number(spread)}
       Balance:  #{format_balance(balance, profit(position, price), stale)}
     EOS
@@ -80,10 +81,9 @@ class SummaryCommand
     position.profit(price).to_i
   end
 
-  def spread(position, price)
-    return 0 if price.zero?
-    return 0 if position.average.to_i.zero?
+  def spread(price, average)
+    return 0 if price.zero? || average.zero?
 
-    price.to_i - position.average.to_i
+    price.to_i - average
   end
 end
