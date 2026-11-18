@@ -8,11 +8,11 @@ class StopByRangeCommand
 
   def run(options) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     position = Position.new(http_private_client.positions)
-    return puts "You don't have any position now." if position.empty?
+    return puts "You don't have any position now." if position.flat?
 
     side = position.size.positive? ? 'SELL' : 'BUY'
     size = position.size.abs.to_f
-    price = position.average.abs + (options.range * (side == 'BUY' ? 1.0 : -1.0))
+    price = position.average + (options.range * (side == 'BUY' ? 1.0 : -1.0))
 
     response = http_private_client.send_parent_order(
       order_method: 'SIMPLE',

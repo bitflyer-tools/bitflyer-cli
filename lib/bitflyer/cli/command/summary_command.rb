@@ -62,8 +62,8 @@ class SummaryCommand
 
   def spread
     return 0 if @current_price.zero?
-    return 0 if @position.average.to_i.zero?
+    return 0 if @position.flat?
 
-    @current_price.to_i - @position.average.to_i
+    @current_price.to_i - @position.average
   end
 end

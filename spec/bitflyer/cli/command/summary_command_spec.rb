@@ -68,6 +68,21 @@ describe SummaryCommand do
     expect(output).to start_with("\e[?25l").and end_with("\e[?25h")
   end
 
+  context 'with offsetting positions' do
+    let(:positions) do
+      [position(side: 'BUY', price: 1_000_000, size: 0.1), position(side: 'SELL', price: 1_100_000, size: 0.1)]
+    end
+
+    it 'shows zero net size and spread while retaining the profit' do
+      command = described_class.new
+      executions_callback.first.call([{ 'price' => 1_010_000 }])
+
+      output = capture_stdout { run_once(command) }
+
+      expect(output).to include('Position: 0 * 0.0', "Spread:   #{'0'.color_with_number(0)}", 'Balance:  60,000')
+    end
+  end
+
   def capture_stdout
     original = $stdout
     $stdout = StringIO.new
