@@ -8,8 +8,8 @@ describe StopByRangeCommand do
     stub_responses(private_client, positions: positions, send_parent_order: response)
   end
 
-  def run
-    described_class.new.run(thor_options(range: 5000))
+  def run(range = 5000)
+    described_class.new.run(thor_options(range: range))
   end
 
   def stop_order(side:, trigger_price:, size:)
@@ -31,6 +31,13 @@ describe StopByRangeCommand do
 
   context 'with a long position' do
     let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.2)] }
+
+    [0, -5000].each do |range|
+      it "rejects a range of #{range} without sending an order" do
+        expect { run(range) }.to raise_error(ArgumentError, 'Range must be positive')
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+    end
 
     it 'sets a sell stop below the average price' do
       expect { run }.to output("Set stop order SELL / 995000.0 / 0.2\n").to_stdout

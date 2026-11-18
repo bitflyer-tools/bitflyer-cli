@@ -38,6 +38,6 @@ jobs:
           bash .github/release/bump.sh "$RELEASE_VERSION" --message ':tada: Bump %{name} to %{version}'
       - name: Update project lockfile
         run: |
-          bundle config set frozen false && bundle install
+          bundle config set --local frozen false && bundle install
           git add . && git commit --amend --no-edit
       - uses: rubygems/release-gem@5c53f5308233b7c0f47411f0471b3faae6fa57b2 # v1.4.2

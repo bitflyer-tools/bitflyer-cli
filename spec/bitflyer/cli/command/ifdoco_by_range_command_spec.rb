@@ -28,13 +28,21 @@ describe IFDOCOByRangeCommand do
   end
 
   it 'splits the range into profit and loss lines for a buy' do
-    expect { run('buy') }.to output(%r{Set limit order BUY / 1006000 / 0.01\nSet stop order BUY / 996000}).to_stdout
+    expect { run('buy') }.to output(<<~OUTPUT).to_stdout
+      Send market order BUY / 0.01
+      Set limit order SELL / 1006000 / 0.01
+      Set stop order SELL / 996000 / 0.01
+    OUTPUT
     expect(private_client).to have_received(:send_parent_order)
       .with(**ifdoco_order(side: 'BUY', counter_side: 'SELL', profit_price: 1_006_000, loss_price: 996_000))
   end
 
   it 'mirrors the lines for a sell' do
-    expect { run('sell') }.to output(/Send market order SELL/).to_stdout
+    expect { run('sell') }.to output(<<~OUTPUT).to_stdout
+      Send market order SELL / 0.01
+      Set limit order BUY / 994000 / 0.01
+      Set stop order BUY / 1004000 / 0.01
+    OUTPUT
     expect(private_client).to have_received(:send_parent_order)
       .with(**ifdoco_order(side: 'SELL', counter_side: 'BUY', profit_price: 994_000, loss_price: 1_004_000))
   end
