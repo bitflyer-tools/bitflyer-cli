@@ -19,28 +19,12 @@ class SummaryCommand
     update_balance
   end
 
-  def run # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+  def run
     $stdout.sync = true
     print "\e[?25l"
-
-    Thread.new do
-      loop do
-        sleep 5
-        update_balance
-      end
-    end
-
+    Thread.new { poll_account }
     puts "\n" * 3
-
-    loop do
-      print <<~EOS
-        \e[4F\e[0JCurrent:  #{@current_price.to_i.to_s.split_by_comma}
-        Position: #{@position.average.to_s.split_by_comma} * #{@position.size.to_f}
-        Spread:   #{spread.to_s.split_by_comma.color_with_number(spread)}
-        Balance:  #{(@balance + profit).to_s.split_by_comma.ljust(15, ' ')} (#{profit.to_s.split_by_comma.color_with_number(profit)})
-      EOS
-      sleep 0.1
-    end
+    render_loop
   rescue Interrupt
     # exit
   ensure
@@ -49,21 +33,57 @@ class SummaryCommand
 
   private
 
+  def render_loop
+    loop do
+      print summary
+      sleep 0.1
+    end
+  end
+
+  def poll_account
+    loop do
+      sleep 5
+      update_balance
+    rescue IOError, Timeout::Error, SocketError, SystemCallError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse
+      position, balance = @account
+      @account = [position, balance, true]
+    end
+  end
+
   def update_balance
-    @position = Position.new(http_private_client.positions)
-    @balance = http_private_client.collateral['collateral'].to_i
+    position = Position.new(http_private_client.positions)
+    balance = http_private_client.collateral['collateral'].to_i
+    @account = [position, balance, false]
   end
 
-  def profit
-    return 0 if @current_price.zero?
+  def summary
+    position, balance, stale = @account
+    price = @current_price
+    spread = spread(position, price)
 
-    @position.profit(@current_price).to_i
+    <<~EOS
+      \e[4F\e[0JCurrent:  #{price.to_i.to_s.split_by_comma}
+      Position: #{position.average.to_s.split_by_comma} * #{position.size.to_f}
+      Spread:   #{spread.to_s.split_by_comma.color_with_number(spread)}
+      Balance:  #{format_balance(balance, profit(position, price), stale)}
+    EOS
   end
 
-  def spread
-    return 0 if @current_price.zero?
-    return 0 if @position.average.to_i.zero?
+  def format_balance(balance, profit, stale)
+    total = (balance + profit).to_s.split_by_comma.ljust(15, ' ')
+    "#{total} (#{profit.to_s.split_by_comma.color_with_number(profit)})#{' [stale]' if stale}"
+  end
 
-    @current_price.to_i - @position.average.to_i
+  def profit(position, price)
+    return 0 if price.zero?
+
+    position.profit(price).to_i
+  end
+
+  def spread(position, price)
+    return 0 if price.zero?
+    return 0 if position.average.to_i.zero?
+
+    price.to_i - position.average.to_i
   end
 end
