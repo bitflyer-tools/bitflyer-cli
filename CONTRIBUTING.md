@@ -22,6 +22,18 @@ bundle exec rubocop
 
 The specs use client doubles and run without bitFlyer API credentials.
 
+CI runs RSpec on Ruby 3.1 and 3.2 with the default bundle. To run the
+coverage check used on Ruby 3.3 and 3.4, install Bundler 4.1.0 and use
+the coverage Gemfile:
+
+```sh
+gem install bundler -v 4.1.0
+BUNDLE_GEMFILE=gemfiles/with_coverage/Gemfile bundle install
+BUNDLE_GEMFILE=gemfiles/with_coverage/Gemfile COVERAGE=true bundle exec rspec
+```
+
+When changing shared dependencies, update both lockfiles.
+
 ## Pull requests
 
 Create a branch for your change. Add or update specs when changing behavior,

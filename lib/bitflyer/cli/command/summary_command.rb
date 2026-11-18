@@ -23,6 +23,8 @@ class SummaryCommand
   end
 
   def run
+    return unless @account_snapshot
+
     $stdout.sync = true
     print "\e[?25l"
     refresh_balance
@@ -37,9 +39,14 @@ class SummaryCommand
 
   def render
     puts "\n" * 3
+    previous_frame = nil
 
     loop do
-      print frame
+      current_frame = frame
+      if current_frame != previous_frame
+        print current_frame
+        previous_frame = current_frame
+      end
       sleep 0.1
     end
   end
@@ -54,7 +61,9 @@ class SummaryCommand
   end
 
   def update_balance
-    position = Position.new(http_private_client.positions)
+    position = fetch_position
+    return unless position
+
     balance = http_private_client.collateral['collateral'].to_i
     @account_snapshot = [position, balance].freeze
   end
@@ -72,7 +81,7 @@ class SummaryCommand
 
   def marked_values(price, position, balance, average)
     profit = position.profit(price).to_i
-    spread = average.zero? ? 0 : price.to_i - average
+    spread = position.flat? ? 0 : price.to_i - average
     <<~EOS.chomp
       Spread:   #{colored_amount(spread)}
       Balance:  #{(balance + profit).to_s.split_by_comma.ljust(15, ' ')} (#{colored_amount(profit)})

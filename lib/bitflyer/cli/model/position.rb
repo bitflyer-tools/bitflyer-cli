@@ -17,7 +17,11 @@ class Position
   end
 
   def average
-    empty? ? 0 : (sum / size.abs).to_i
+    flat? ? 0 : (@signed_entry_value / size).to_i
+  end
+
+  def flat?
+    size.zero?
   end
 
   def empty?

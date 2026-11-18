@@ -13,6 +13,8 @@ class OrderByTWAPCommand
     interval = options.interval
     raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
 
+    raise Thor::MalformattedArgumentError, '--number-of-times must be a whole number' unless number == number.to_i
+
     number.to_i.times do |index|
       sleep interval if index.positive?
       order(type, amount)
