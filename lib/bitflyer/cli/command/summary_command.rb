@@ -3,16 +3,20 @@
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/has_realtime_client'
 require 'bitflyer/cli/ext/string'
+require 'bitflyer/cli/model/position'
 
 class SummaryCommand
   include HasHTTPClient
   include HasRealtimeClient
 
-  def initialize
-    @current_price = 0.0
+  PRICE_FRESHNESS_LIMIT = 30 # seconds
 
+  def initialize
+    @execution = nil
+    realtime_client.disconnected = ->(_error) { @execution = nil }
     realtime_client.executions_fx_btc_jpy = lambda { |message|
-      message.each { |m| @current_price = m['price'].to_f }
+      execution = message.last
+      @execution = [execution['price'].to_f, monotonic_time] if execution
     }
 
     update_balance
@@ -31,7 +35,7 @@ class SummaryCommand
       poller = Thread.new { poll_balance }
     end
 
-    display
+    render
   rescue Interrupt
     # exit
   ensure
@@ -55,7 +59,7 @@ class SummaryCommand
     stdout.sync = original_sync
   end
 
-  def display
+  def render
     puts "\n" * 3
     previous_frame = nil
 
@@ -77,19 +81,36 @@ class SummaryCommand
     @account_snapshot = [position, balance].freeze
   end
 
-  def frame # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+  def frame
     position, balance = @account_snapshot
-    price = @current_price
+    price = fresh_price
     average = position.average
-    profit = price.zero? ? 0 : position.profit(price).to_i
-    spread = price.zero? || position.flat? ? 0 : price.to_i - average
-    total = (balance + profit).to_s.split_by_comma.ljust(15)
-
     <<~EOS
-      \e[4F\e[0JCurrent:  #{price.to_i.to_s.split_by_comma}
+      \e[4F\e[0JCurrent:  #{price ? price.to_i.to_s.split_by_comma : 'Stale'}
       Position: #{average.to_s.split_by_comma} * #{position.size.to_f}
-      Spread:   #{spread.to_s.split_by_comma.color_with_number(spread)}
-      Balance:  #{total} (#{profit.to_s.split_by_comma.color_with_number(profit)})
+      #{price ? marked_values(price, position, balance, average) : "Spread:   N/A\nBalance:  N/A (N/A)"}
     EOS
+  end
+
+  def marked_values(price, position, balance, average)
+    profit = position.profit(price).to_i
+    spread = position.flat? ? 0 : price.to_i - average
+    <<~EOS.chomp
+      Spread:   #{colored_amount(spread)}
+      Balance:  #{(balance + profit).to_s.split_by_comma.ljust(15, ' ')} (#{colored_amount(profit)})
+    EOS
+  end
+
+  def colored_amount(amount)
+    amount.to_s.split_by_comma.color_with_number(amount)
+  end
+
+  def fresh_price
+    price, received_at = @execution
+    price if received_at && monotonic_time - received_at < PRICE_FRESHNESS_LIMIT
+  end
+
+  def monotonic_time
+    Process.clock_gettime(Process::CLOCK_MONOTONIC)
   end
 end

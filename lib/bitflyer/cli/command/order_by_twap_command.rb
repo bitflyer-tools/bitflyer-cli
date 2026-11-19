@@ -7,21 +7,38 @@ class OrderByTWAPCommand
   include HasHTTPClient
 
   def run(options)
-    type = options.type
-    amount = options.amount
-    number = options.number_of_times
     interval = options.interval
     raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
 
-    raise Thor::MalformattedArgumentError, '--number-of-times must be a whole number' unless number == number.to_i
-
-    number.to_i.times do |index|
-      sleep interval if index.positive?
-      order(type, amount)
+    number = whole_order_count(options.number_of_times)
+    deadline = monotonic_time
+    number.times do |index|
+      deadline = wait_for_submission(deadline, interval) if index.positive?
+      order(options.type, options.amount)
+      deadline += interval
     end
   end
 
   private
+
+  def whole_order_count(number)
+    count = number.to_i
+    raise Thor::MalformattedArgumentError, '--number-of-times must be a whole number' unless number == count
+
+    count
+  end
+
+  def monotonic_time
+    Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  end
+
+  def wait_for_submission(deadline, interval)
+    now = monotonic_time
+    deadline = now + interval if deadline < now
+    remaining = deadline - now
+    sleep remaining if remaining.positive?
+    deadline
+  end
 
   def order(type, amount) # rubocop:disable Metrics/MethodLength
     response = http_private_client.send_child_order(
