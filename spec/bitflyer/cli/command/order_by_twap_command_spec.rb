@@ -51,8 +51,7 @@ describe OrderByTWAPCommand do
   end
 
   context 'when a request misses several submission deadlines' do
-    let(:number_of_times) { 3 }
-  let(:request_durations) { [25, 2, 2] }
+    let(:request_durations) { [25, 2, 2] }
 
     it 'starts a new cadence after the slow request finishes' do
       expect { run }.to output.to_stdout
@@ -87,8 +86,9 @@ describe OrderByTWAPCommand do
   context 'when an order is rejected' do
     let(:response) { { 'status' => -200 } }
 
-    it 'prints the error response' do
-      expect { run }.to output(/An error has occurred/).to_stdout
+    it 'reports rejected slices and preserves the submission cadence' do
+      expect { run }.to output(/An error has occurred.*0 accepted, 3 rejected/m).to_stdout
+      expect(submission_times).to eq([0, 10, 20])
     end
   end
 end

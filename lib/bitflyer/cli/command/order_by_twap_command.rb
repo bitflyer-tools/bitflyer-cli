@@ -12,12 +12,12 @@ class OrderByTWAPCommand
 
     number = whole_order_count(options.number_of_times)
     side = normalize_side(options.type)
-    deadline = monotonic_time
-    number.times do |index|
-      deadline = wait_for_submission(deadline, interval) if index.positive?
-      order(side, options.amount)
-      deadline += interval
+    counts = { accepted: 0, rejected: 0 }
+    submit_on_schedule(number, interval) do
+      counts[order(side, options.amount)] += 1
     end
+    puts "TWAP exchange acceptance (slices): #{counts[:accepted]} accepted, #{counts[:rejected]} rejected."
+    counts
   end
 
   private
@@ -27,6 +27,15 @@ class OrderByTWAPCommand
     raise Thor::Error, 'Order type must be buy or sell' unless %w[BUY SELL].include?(side)
 
     side
+  end
+
+  def submit_on_schedule(number, interval)
+    deadline = monotonic_time
+    number.times do |index|
+      deadline = wait_for_submission(deadline, interval) if index.positive?
+      yield
+      deadline += interval
+    end
   end
 
   def whole_order_count(number)
@@ -58,8 +67,10 @@ class OrderByTWAPCommand
 
     if response['child_order_acceptance_id'].nil?
       puts "An error has occurred\n#{response}"
+      :rejected
     else
       puts response
+      :accepted
     end
   end
 end

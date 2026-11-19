@@ -77,6 +77,41 @@ describe SummaryCommand do
     expect(output).to match(/Spread:   \+.*10,000/).and match(/\(\+.*1,000/)
   end
 
+  it 'keeps the last complete account data until a scheduled refresh succeeds' do
+    command = described_class.new
+    execution = [{ 'price' => 1_000_000 }]
+    executions_callback.first.call(execution)
+    new_positions = [position(side: 'BUY', price: 1_100_000, size: 0.2)]
+    expect(private_client).to receive(:positions).ordered.and_return(new_positions)
+    expect(private_client).to receive(:collateral).ordered.and_raise(IOError)
+    expect(private_client).to receive(:positions).ordered.and_return(new_positions)
+    expect(private_client).to receive(:collateral).ordered.and_return('collateral' => 60_000)
+
+    poller = nil
+    allow(Thread).to receive(:new) do |&poll|
+      poller = Fiber.new(&poll)
+      poller.resume
+    end
+    allow(command).to receive(:sleep).with(5) { Fiber.yield }
+    expect(command).to receive(:sleep).with(0.1).exactly(5).times.and_invoke(
+      ->(_) { poller.resume },
+      ->(_) { disconnect_callback.first.call(nil) },
+      ->(_) { poller.resume },
+      ->(_) { executions_callback.first.call(execution) },
+      ->(_) { raise Interrupt }
+    )
+
+    initial, stale, disconnected, refreshed, recovered = capture_stdout { command.run }.split("\e[4F\e[0J").drop(1)
+    expect(initial).to include('Position: 1,000,000 * 0.1', 'Balance:  50,000')
+    expect(initial).not_to include('[stale]')
+    expect(stale).to include('Position: 1,000,000 * 0.1', 'Balance:  50,000', '[stale]')
+    expect(disconnected).to include('Current:  Stale', 'Balance:  N/A (N/A) [stale]')
+    expect(refreshed).to include('Position: 1,100,000 * 0.2', 'Balance:  N/A (N/A)')
+    expect(refreshed).not_to include('[stale]')
+    expect(recovered).to include('Position: 1,100,000 * 0.2', 'Balance:  40,000')
+    expect(recovered).not_to include('[stale]')
+  end
+
   it 'shows the previous account snapshot until collateral arrives' do
     command = described_class.new
     executions_callback.first.call([{ 'price' => 2_000_000 }])
