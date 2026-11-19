@@ -11,15 +11,24 @@ class OrderByTWAPCommand
     raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
 
     number = whole_order_count(options.number_of_times)
-    deadline = monotonic_time
-    number.times do |index|
-      deadline = wait_for_submission(deadline, interval) if index.positive?
-      order(options.type, options.amount)
-      deadline += interval
+    counts = { accepted: 0, rejected: 0 }
+    submit_on_schedule(number, interval) do
+      counts[order(options.type, options.amount)] += 1
     end
+    puts "TWAP exchange acceptance (slices): #{counts[:accepted]} accepted, #{counts[:rejected]} rejected."
+    counts
   end
 
   private
+
+  def submit_on_schedule(number, interval)
+    deadline = monotonic_time
+    number.times do |index|
+      deadline = wait_for_submission(deadline, interval) if index.positive?
+      yield
+      deadline += interval
+    end
+  end
 
   def whole_order_count(number)
     count = number.to_i
@@ -52,8 +61,10 @@ class OrderByTWAPCommand
 
     if response['child_order_acceptance_id'].nil?
       puts "An error has occurred\n#{response}"
+      :rejected
     else
       puts response
+      :accepted
     end
   end
 end
