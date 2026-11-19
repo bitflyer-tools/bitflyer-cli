@@ -215,9 +215,26 @@ describe SummaryCommand do
     it_behaves_like 'an invalidated execution price'
   end
 
-  it 'draws once when consecutive iterations have the same visible values' do
+  it 'builds one frame while the account and fresh price stay the same' do
+    command = described_class.new
+    allow(command).to receive(:monotonic_time).and_return(100)
+    execution = [{ 'price' => 1_010_000 }]
+    executions_callback.first.call(execution)
+    repeat_price = lambda do
+      allow(command).to receive(:monotonic_time).and_return(129)
+      executions_callback.first.call(execution)
+    end
+    expect(command).to receive(:frame).once.and_call_original
+
+    output = capture_stdout { run_iterations(command, -> {}, repeat_price, -> {}) }
+
+    expect(output.scan("\e[4F\e[0J").size).to eq(1)
+  end
+
+  it 'draws once when different prices produce the same visible values' do
     command = described_class.new
     executions_callback.first.call([{ 'price' => 1_010_000 }])
+    expect(command).to receive(:frame).twice.and_call_original
 
     output = capture_stdout do
       run_iterations(command, -> {}, -> { executions_callback.first.call([{ 'price' => 1_010_000.5 }]) }, -> {})
@@ -254,6 +271,7 @@ describe SummaryCommand do
     executions_callback.first.call(execution)
     expire_price = -> { allow(command).to receive(:monotonic_time).and_return(130) }
     renew_price = -> { executions_callback.first.call(execution) }
+    expect(command).to receive(:frame).exactly(3).times.and_call_original
 
     output = capture_stdout { run_iterations(command, expire_price, -> {}, renew_price) }
     frames = output.split("\e[4F\e[0J").drop(1)
