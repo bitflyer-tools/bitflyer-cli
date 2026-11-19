@@ -37,6 +37,10 @@ Commands:
   bitflyer summary                                             # show current balance information
 ```
 
+`stop_by_range` checks active parent orders before submitting. If it finds a
+standalone stop for the same market, side, trigger price, and size, it prints
+the existing stop and its parent order ID.
+
 ### List and cancel open orders
 
 Run `bitflyer open_orders` to see active orders for `FX_BTC_JPY`. The child order list
