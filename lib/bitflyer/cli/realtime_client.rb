@@ -4,6 +4,7 @@ require 'bitflyer'
 require 'io/wait'
 require 'openssl'
 require 'socket'
+require 'timeout'
 require 'uri'
 require 'websocket/driver'
 
@@ -32,6 +33,7 @@ module Bitflyer
       end
 
       class TLSConnection
+        TLS_HANDSHAKE_TIMEOUT = 10
         UPGRADE_TIMEOUT = 10
 
         attr_reader :url
@@ -91,7 +93,7 @@ module Bitflyer
           socket = OpenSSL::SSL::SSLSocket.new(tcp_socket, context)
           socket.sync_close = true
           socket.hostname = endpoint.host
-          socket.connect
+          Timeout.timeout(TLS_HANDSHAKE_TIMEOUT, SocketError, 'TLS handshake timed out') { socket.connect }
         rescue StandardError
           tcp_socket&.close
           raise
