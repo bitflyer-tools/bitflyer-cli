@@ -4,6 +4,6 @@ require 'bitflyer/cli'
 
 begin
   Bitflyer::Cli::Runner.start
-rescue CancelAllCommand::Rejected => e
+rescue CancelAllCommand::Rejected, HasHTTPClient::TickerError => e
   abort e.message
 end
