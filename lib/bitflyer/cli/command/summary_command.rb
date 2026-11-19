@@ -27,12 +27,12 @@ class SummaryCommand
 
     $stdout.sync = true
     print "\e[?25l"
-    refresh_balance
+    Thread.new { poll_account }
     render
   rescue Interrupt
     # exit
   ensure
-    print "\e[?25h"
+    print "\e[?25h" if @account_snapshot
   end
 
   private
@@ -43,20 +43,18 @@ class SummaryCommand
 
     loop do
       current_frame = frame
-      if current_frame != previous_frame
-        print current_frame
-        previous_frame = current_frame
-      end
+      print current_frame unless current_frame == previous_frame
+      previous_frame = current_frame
       sleep 0.1
     end
   end
 
-  def refresh_balance
-    Thread.new do
-      loop do
-        sleep 5
-        update_balance
-      end
+  def poll_account
+    loop do
+      sleep 5
+      update_balance
+    rescue IOError, Timeout::Error, SocketError, SystemCallError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse
+      mark_account_stale
     end
   end
 
@@ -65,7 +63,16 @@ class SummaryCommand
     return unless position
 
     balance = fetch_collateral
-    @account_snapshot = [position, balance].freeze unless balance.nil?
+    return mark_account_stale if balance.nil?
+
+    @account_snapshot = [position, balance, false].freeze
+  end
+
+  def mark_account_stale
+    return unless @account_snapshot
+
+    position, balance = @account_snapshot
+    @account_snapshot = [position, balance, true].freeze
   end
 
   def fetch_collateral
@@ -82,13 +89,14 @@ class SummaryCommand
   end
 
   def frame
-    position, balance = @account_snapshot
+    position, balance, stale = @account_snapshot
     price = fresh_price
     average = position.average
+    values = price ? marked_values(price, position, balance, average) : "Spread:   N/A\nBalance:  N/A (N/A)"
     <<~EOS
       \e[4F\e[0JCurrent:  #{price ? price.to_i.to_s.split_by_comma : 'Stale'}
       Position: #{average.to_s.split_by_comma} * #{position.size.to_f}
-      #{price ? marked_values(price, position, balance, average) : "Spread:   N/A\nBalance:  N/A (N/A)"}
+      #{values}#{' [stale]' if stale}
     EOS
   end
 
