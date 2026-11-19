@@ -7,13 +7,12 @@ class OrderByTWAPCommand
   include HasHTTPClient
 
   def run(options)
-    number = options.number_of_times
     interval = options.interval
-    validate_schedule(number, interval)
+    raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
 
+    number = whole_order_count(options.number_of_times)
     counts = { accepted: 0, rejected: 0 }
-    number.to_i.times do |index|
-      sleep interval if index.positive?
+    submit_on_schedule(number, interval) do
       counts[order(options.type, options.amount)] += 1
     end
     puts "TWAP exchange acceptance (slices): #{counts[:accepted]} accepted, #{counts[:rejected]} rejected."
@@ -22,10 +21,32 @@ class OrderByTWAPCommand
 
   private
 
-  def validate_schedule(number, interval)
-    raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
+  def submit_on_schedule(number, interval)
+    deadline = monotonic_time
+    number.times do |index|
+      deadline = wait_for_submission(deadline, interval) if index.positive?
+      yield
+      deadline += interval
+    end
+  end
 
-    raise Thor::MalformattedArgumentError, '--number-of-times must be a whole number' unless number == number.to_i
+  def whole_order_count(number)
+    count = number.to_i
+    raise Thor::MalformattedArgumentError, '--number-of-times must be a whole number' unless number == count
+
+    count
+  end
+
+  def monotonic_time
+    Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  end
+
+  def wait_for_submission(deadline, interval)
+    now = monotonic_time
+    deadline = now + interval if deadline < now
+    remaining = deadline - now
+    sleep remaining if remaining.positive?
+    deadline
   end
 
   def order(type, amount) # rubocop:disable Metrics/MethodLength

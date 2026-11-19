@@ -108,13 +108,13 @@ describe Bitflyer::Cli::RealtimeClient do
   end
 
   it 'delivers executions from a trusted peer for the endpoint hostname' do
-    with_tls_server do |requests, ready|
+    with_tls_server(keep_open: true) do |requests, ready|
       stub_responses(stub_private_client, positions: [], collateral: { 'collateral' => 0 })
       command = SummaryCommand.new
       ready << true
       Timeout.timeout(5) do
         expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
-        sleep 0.01 until command.instance_variable_get(:@current_price) == 1_010_000.0
+        sleep 0.01 until command.send(:fresh_price) == 1_010_000.0
       end
     ensure
       command&.realtime_client&.websocket_client&.websocket_client&.close
@@ -144,21 +144,21 @@ describe Bitflyer::Cli::RealtimeClient do
     end
   end
 
-  def with_tls_server(issuer: root, issuer_key: root_key, connections: 1, upgrades: nil)
+  def with_tls_server(issuer: root, issuer_key: root_key, connections: 1, upgrades: nil, keep_open: false)
     context = OpenSSL::SSL::SSLContext.new
     context.cert = certificate(hostname, server_key, issuer: issuer, issuer_key: issuer_key)
     context.key = server_key
     requests = Queue.new
     ready = Queue.new
     worker = Thread.new do
-      connections.times { serve_execution(context, requests, ready, upgrades) }
+      connections.times { serve_execution(context, requests, ready, upgrades, keep_open) }
     end
     yield requests, ready
   ensure
     worker&.kill&.join
   end
 
-  def serve_execution(context, requests, ready, upgrades)
+  def serve_execution(context, requests, ready, upgrades, keep_open)
     socket = OpenSSL::SSL::SSLServer.new(server, context).accept
     request = socket.gets("\r\n\r\n")
     requests << request
@@ -175,6 +175,7 @@ describe Bitflyer::Cli::RealtimeClient do
     socket.readpartial(4096)
     payload = '42["lightning_executions_FX_BTC_JPY",[{"price":1010000}]]'
     socket.write(WebSocket::Frame::Outgoing::Server.new(data: payload, type: :text, version: handshake.version).to_s)
+    socket.read if keep_open
   rescue OpenSSL::SSL::SSLError
     requests << nil
   ensure
