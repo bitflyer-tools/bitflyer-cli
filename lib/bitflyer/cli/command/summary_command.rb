@@ -15,8 +15,8 @@ class SummaryCommand
     @execution = nil
     realtime_client.disconnected = ->(_error) { @execution = nil }
     realtime_client.executions_fx_btc_jpy = lambda { |message|
-      execution = message.last
-      @execution = [execution['price'].to_f, monotonic_time] if execution
+      price = Float(message.last&.[]('price'), exception: false)
+      @execution = [price, monotonic_time] if price&.finite? && price.positive?
     }
 
     update_balance

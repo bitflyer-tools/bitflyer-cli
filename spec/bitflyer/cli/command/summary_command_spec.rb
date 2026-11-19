@@ -171,6 +171,44 @@ describe SummaryCommand do
     expect(output).to include('Current:  Stale', 'Spread:   N/A', 'Balance:  N/A (N/A)')
   end
 
+  {
+    'missing' => {},
+    'empty' => { 'price' => '' },
+    'nonnumeric' => { 'price' => 'invalid' },
+    'partially numeric' => { 'price' => '1010000invalid' },
+    'zero' => { 'price' => 0 },
+    'negative' => { 'price' => -1 },
+    'NaN' => { 'price' => Float::NAN },
+    'infinite' => { 'price' => Float::INFINITY },
+    'overflowing' => { 'price' => '1e999' }
+  }.each do |description, invalid_execution|
+    it "ignores a #{description} execution price without renewing the last valid price" do
+      command = described_class.new
+      receive_execution = executions_callback.first
+      allow(command).to receive(:monotonic_time).and_return(100)
+
+      receive_execution.call([invalid_execution])
+      stale = capture_stdout { run_once(command) }
+      expect(stale).to include('Current:  Stale', 'Spread:   N/A', 'Balance:  N/A (N/A)')
+
+      receive_execution.call([{ 'price' => 1_010_000 }])
+      marked = capture_stdout { run_once(command) }
+      expect(marked).to include('Current:  1,010,000', 'Balance:  51,000')
+
+      allow(command).to receive(:monotonic_time).and_return(129)
+      receive_execution.call([invalid_execution])
+      expect(capture_stdout { run_once(command) }).to eq(marked)
+
+      allow(command).to receive(:monotonic_time).and_return(130)
+      expect(capture_stdout { run_once(command) }).to eq(stale)
+      receive_execution.call([invalid_execution])
+      expect(capture_stdout { run_once(command) }).to eq(stale)
+
+      receive_execution.call([{ 'price' => '1020000' }])
+      expect(capture_stdout { run_once(command) }).to include('Current:  1,020,000', 'Balance:  52,000')
+    end
+  end
+
   shared_examples 'an invalidated execution price' do
     it 'withholds market-derived values after an account refresh until a new execution arrives' do
       command = described_class.new
