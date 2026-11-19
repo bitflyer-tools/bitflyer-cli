@@ -26,7 +26,7 @@ export BITFLYER_API_SECRET=your-bitflyer-api-secret
 ```
 Commands:
   bitflyer cancel_all                                          # cancel all of orders
-  bitflyer counter_trade                                       # clear all positions
+  bitflyer counter_trade                                       # offset nonzero net exposure with a market order
   bitflyer help [COMMAND]                                      # Describe available commands or one specific command
   bitflyer ifdoco_by_range --amount=0.01 --type=buy --range=10000 --percentage=60  # create IFDOCO order by range based on current price
   bitflyer order_by_best -a=amount -t=buy/sell                 # create limit order by best price in the board

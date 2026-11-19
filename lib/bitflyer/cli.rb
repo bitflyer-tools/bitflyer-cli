@@ -18,7 +18,7 @@ module Bitflyer
         CancelAllCommand.new.run
       end
 
-      desc 'counter_trade', 'clear all positions'
+      desc 'counter_trade', 'offset nonzero net exposure with a market order'
       def counter_trade
         CounterTradeCommand.new.run
       end
