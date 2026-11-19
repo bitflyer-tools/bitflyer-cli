@@ -36,7 +36,8 @@ module Bitflyer
       method_option :number_of_times, aliases: 'n', type: :numeric, banner: 'N', required: true
       method_option :interval, aliases: 'i', type: :numeric, banner: 'second', required: true
       def order_by_twap
-        OrderByTWAPCommand.new.run(options)
+        counts = OrderByTWAPCommand.new.run(options)
+        exit 1 if counts[:rejected].positive?
       end
 
       desc 'stop_by_range', 'create stop order by range based on current position'
