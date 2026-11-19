@@ -10,6 +10,8 @@ bitflyer-cli is a CLI tool for [Bitflyer](https://bitflyer.jp/) FXBTC.
 
 ## Installation
 
+Requires Ruby 3.3 or later.
+
 ```sh
 gem install bitflyer-cli
 ```

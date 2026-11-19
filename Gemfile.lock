@@ -81,7 +81,6 @@ PLATFORMS
 
 DEPENDENCIES
   bitflyer-cli!
-  prism
   rake
   rspec
   rubocop
