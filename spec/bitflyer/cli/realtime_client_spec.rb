@@ -81,6 +81,24 @@ describe Bitflyer::Cli::RealtimeClient do
 
   after { server.close }
 
+  it 'closes the TCP connection when the peer stalls the TLS handshake' do
+    stub_const('Bitflyer::Cli::RealtimeClient::TLSConnection::TLS_HANDSHAKE_TIMEOUT', 0.25)
+    listener = server
+    peer = Thread.new do
+      socket = listener.accept
+      socket.read
+    ensure
+      socket&.close
+    end
+
+    Timeout.timeout(2) do
+      expect { SummaryCommand.new }.to raise_error(SocketError, 'TLS handshake timed out')
+      expect(peer.value).not_to be_empty
+    end
+  ensure
+    peer&.kill&.join
+  end
+
   it 'closes a stalled upgrade and delivers executions after reconnecting' do
     stub_const('Bitflyer::Cli::RealtimeClient::TLSConnection::UPGRADE_TIMEOUT', 1)
     upgrades = Queue.new
