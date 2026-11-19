@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/order_rejected'
 
 class StopByRangeCommand
   include HasHTTPClient
@@ -28,10 +29,7 @@ class StopByRangeCommand
       }]
     )
 
-    if response['parent_order_acceptance_id'].nil?
-      puts "An error has occurred#{response}"
-    else
-      puts "Set stop order #{side} / #{price} / #{size}"
-    end
+    Bitflyer::Cli::OrderRejected.check!(response, 'parent_order_acceptance_id')
+    puts "Set stop order #{side} / #{price} / #{size}"
   end
 end
