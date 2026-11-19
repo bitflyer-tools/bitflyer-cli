@@ -2,8 +2,10 @@
 
 require 'thor'
 require 'bitflyer/cli/command/cancel_all_command'
+require 'bitflyer/cli/command/cancel_order_command'
 require 'bitflyer/cli/command/counter_trade_command'
 require 'bitflyer/cli/command/ifdoco_by_range_command'
+require 'bitflyer/cli/command/open_orders_command'
 require 'bitflyer/cli/command/order_by_best_command'
 require 'bitflyer/cli/command/order_by_twap_command'
 require 'bitflyer/cli/command/stop_by_range_command'
@@ -18,9 +20,23 @@ module Bitflyer
         CancelAllCommand.new.run
       end
 
+      desc 'cancel_order TYPE ID', 'request cancellation of one child order or parent strategy'
+      long_desc 'Use child or parent as TYPE and copy the order ID from open_orders. ' \
+                'Canceling a parent strategy also cancels its associated orders and requires --confirm-parent.'
+      method_option :confirm_parent, type: :boolean, default: false,
+                                     desc: 'Confirm cancellation of the parent strategy and its associated orders'
+      def cancel_order(type = nil, id = nil)
+        CancelOrderCommand.new.run(type, id, confirm_parent: options[:confirm_parent])
+      end
+
       desc 'counter_trade', 'offset nonzero net exposure with a market order'
       def counter_trade
         CounterTradeCommand.new.run
+      end
+
+      desc 'open_orders', 'show active child orders and parent strategies'
+      def open_orders
+        OpenOrdersCommand.new.run
       end
 
       desc 'order_by_best', 'create limit order by best price in the board'
@@ -36,7 +52,8 @@ module Bitflyer
       method_option :number_of_times, aliases: 'n', type: :numeric, banner: 'N', required: true
       method_option :interval, aliases: 'i', type: :numeric, banner: 'second', required: true
       def order_by_twap
-        OrderByTWAPCommand.new.run(options)
+        counts = OrderByTWAPCommand.new.run(options)
+        exit 1 if counts[:rejected].positive?
       end
 
       desc 'stop_by_range', 'create stop order by range based on current position'
