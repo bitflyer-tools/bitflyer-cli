@@ -64,8 +64,21 @@ class SummaryCommand
     position = fetch_position
     return unless position
 
-    balance = http_private_client.collateral['collateral'].to_i
-    @account_snapshot = [position, balance].freeze
+    balance = fetch_collateral
+    @account_snapshot = [position, balance].freeze unless balance.nil?
+  end
+
+  def fetch_collateral
+    response = http_private_client.collateral
+    if response.is_a?(Hash)
+      status = response['status']
+      collateral = response['collateral']
+      rejected = status.is_a?(Numeric) && status.negative?
+      return collateral.to_i if !rejected && collateral.is_a?(Numeric) && collateral.finite?
+    end
+
+    warn "Failed to look up collateral: #{response.inspect}"
+    nil
   end
 
   def frame

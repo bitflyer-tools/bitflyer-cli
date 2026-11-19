@@ -39,6 +39,51 @@ describe SummaryCommand do
     end
   end
 
+  context 'with an invalid collateral response' do
+    {
+      'a rejected response' => [{ 'status' => -1, 'error_message' => 'Collateral unavailable' }, /-1.*Collateral unavailable/],
+      'a rejected response with collateral' => [{ 'status' => -1, 'collateral' => 60_000 }, /-1/],
+      'a missing value' => [{}, /\{\}/],
+      'a null value' => [{ 'collateral' => nil }, /nil/]
+    }.each do |description, (response, details)|
+      context "with #{description}" do
+        let(:error) { /Failed to look up collateral:.*#{details}/ }
+
+        it 'reports the startup failure and skips balance rendering even with a fresh price' do
+          stub_responses(private_client, collateral: response)
+          expect(Thread).not_to receive(:new)
+
+          expect do
+            command = described_class.new
+            executions_callback.first.call([{ 'price' => 1_000_000 }])
+            expect(capture_stdout { command.run }).not_to include('Balance:')
+          end.to output(error).to_stderr
+        end
+
+        it 'reports the refresh failure and retains both previous account figures' do
+          command = described_class.new
+          executions_callback.first.call([{ 'price' => 2_000_000 }])
+          stub_responses(
+            private_client,
+            positions: [position(side: 'BUY', price: 2_000_000, size: 0.2)],
+            collateral: response
+          )
+
+          expect { command.send(:update_balance) }.to output(error).to_stderr
+          expect(capture_stdout { run_once(command) }).to include('Position: 1,000,000 * 0.1', 'Balance:  150,000')
+        end
+      end
+    end
+  end
+
+  it 'renders a balance of zero when the collateral lookup succeeds with zero' do
+    stub_responses(private_client, collateral: { 'collateral' => 0 })
+    command = described_class.new
+    executions_callback.first.call([{ 'price' => 1_000_000 }])
+
+    expect(capture_stdout { run_once(command) }).to match(/Balance:  0 +\(/)
+  end
+
   it 'reports a rejected refresh and keeps the last successful account data' do
     command = described_class.new
     stub_responses(private_client, positions: { 'status' => -200 })
