@@ -7,6 +7,8 @@ require 'bitflyer/cli/model/position'
 module HasHTTPClient
   include Authorization
 
+  class TickerError < StandardError; end
+
   def http_public_client
     @http_public_client ||= Bitflyer.http_public_client
   end
@@ -16,6 +18,24 @@ module HasHTTPClient
   end
 
   private
+
+  def fetch_ticker_price(field)
+    price = fetch_ticker[field]
+    return price if (price.is_a?(Integer) || price.is_a?(Float)) && price.finite? && price.positive?
+
+    raise TickerError, "Ticker error: #{field} must be a positive, finite number"
+  end
+
+  def fetch_ticker
+    ticker = http_public_client.ticker(product_code: 'FX_BTC_JPY')
+    raise TickerError, 'Ticker error: unexpected response' unless ticker.is_a?(Hash)
+
+    if ticker.fetch('status', 0) != 0 || ticker['error_message']
+      raise TickerError, "Ticker error: #{ticker['error_message'] || ticker.inspect}"
+    end
+
+    ticker
+  end
 
   def fetch_position
     positions = http_private_client.positions

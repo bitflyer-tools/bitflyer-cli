@@ -1,4 +1,6 @@
 require 'spec_helper'
+require 'open3'
+require 'rbconfig'
 require 'shellwords'
 
 describe Bitflyer::Cli::Runner do
@@ -7,6 +9,28 @@ describe Bitflyer::Cli::Runner do
 
   def start(*args)
     described_class.start(args)
+  end
+
+  it 'preserves existing String formatters when loading the CLI' do
+    lib = File.expand_path('../../lib', __dir__)
+    output, status = Open3.capture2e(RbConfig.ruby, '-I', lib, '-e', <<~'RUBY')
+      class String
+        def split_by_comma
+          :original_grouping
+        end
+
+        def color_with_number(_number)
+          :original_coloring
+        end
+      end
+
+      require 'bitflyer/cli'
+
+      abort 'String#split_by_comma changed' unless '1000'.split_by_comma == :original_grouping
+      abort 'String#color_with_number changed' unless '1000'.color_with_number(1000) == :original_coloring
+    RUBY
+
+    expect(status).to be_success, output
   end
 
   it 'shows usage for an individual command' do
@@ -75,13 +99,15 @@ describe Bitflyer::Cli::Runner do
     end
   end
 
-  it 'rejects a fractional TWAP order count without sending orders' do
-    private_client = stub_private_client
-    allow(private_client).to receive(:send_child_order)
+  %w[0 -1 1.9].each do |count|
+    it "rejects a TWAP order count of #{count} without sending orders" do
+      private_client = stub_private_client
+      allow(private_client).to receive(:send_child_order)
 
-    expect { start('order_by_twap', '-a', '0.01', '-t', 'buy', '--number-of-times', '1.9', '-i', '0') }
-      .to output(/--number-of-times must be a whole number/).to_stderr
-    expect(private_client).not_to have_received(:send_child_order)
+      expect { start('order_by_twap', '-a', '0.01', '-t', 'buy', "--number-of-times=#{count}", '-i', '0') }
+        .to output(/^--number-of-times must be a positive whole number$/).to_stderr
+      expect(private_client).not_to have_received(:send_child_order)
+    end
   end
 
   it 'rejects a negative TWAP interval before sending any orders' do
