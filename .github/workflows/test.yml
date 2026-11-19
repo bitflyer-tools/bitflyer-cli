@@ -18,6 +18,8 @@ jobs:
         run: bundle install --jobs 4
       - name: Run lint
         run: bundle exec rubocop
+      - name: Build gem
+        run: gem build bitflyer-cli.gemspec
       - name: Test release version bumps
         run: bash test/release_bump.sh
 
