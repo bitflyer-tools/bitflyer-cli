@@ -40,13 +40,21 @@ class SummaryCommand
   def render
     puts "\n" * 3
     previous_frame = nil
+    previous_inputs = nil
 
     loop do
-      current_frame = frame
-      print current_frame unless current_frame == previous_frame
-      previous_frame = current_frame
+      previous_inputs, previous_frame = redraw(previous_inputs, previous_frame)
       sleep 0.1
     end
+  end
+
+  def redraw(previous_inputs, previous_frame)
+    inputs = [@account_snapshot, fresh_price]
+    return previous_inputs, previous_frame if inputs == previous_inputs
+
+    current_frame = frame(*inputs)
+    print current_frame unless current_frame == previous_frame
+    [inputs, current_frame]
   end
 
   def poll_account
@@ -67,9 +75,8 @@ class SummaryCommand
     @account_snapshot = [position, balance, false].freeze
   end
 
-  def frame
-    position, balance, stale = @account_snapshot
-    price = fresh_price
+  def frame(account_snapshot, price)
+    position, balance, stale = account_snapshot
     average = position.average
     values = price ? marked_values(price, position, balance, average) : "Spread:   N/A\nBalance:  N/A (N/A)"
     <<~EOS
