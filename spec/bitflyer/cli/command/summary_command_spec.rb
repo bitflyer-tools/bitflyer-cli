@@ -24,7 +24,12 @@ describe SummaryCommand do
     it 'reports the API error and skips account rendering' do
       expect(Position).not_to receive(:new)
       expect(Thread).not_to receive(:new)
-      expect { described_class.new.run }.to output(/Failed to look up positions:.*-200.*Invalid API key/).to_stderr
+      output = capture_stdout do
+        $stdout.sync = false
+        expect { described_class.new.run }.to output(/Failed to look up positions:.*-200.*Invalid API key/).to_stderr
+        expect($stdout.sync).to be(false)
+      end
+      expect(output).to be_empty
       expect(private_client).not_to have_received(:collateral)
     end
   end
@@ -101,6 +106,7 @@ describe SummaryCommand do
     allow(Thread).to receive(:new) do |&poll|
       poller = Fiber.new(&poll)
       poller.resume
+      instance_double(Thread, kill: nil, join: nil)
     end
     allow(command).to receive(:sleep).with(5) { Fiber.yield }
     expect(command).to receive(:sleep).with(0.1).exactly(5).times.and_invoke(
@@ -307,10 +313,35 @@ describe SummaryCommand do
     expect(second_frame).to include('Position: 1,000,000 * 0.1', 'Balance:  52,000')
   end
 
-  it 'restores the cursor when interrupted' do
-    output = capture_stdout { run_once(described_class.new) }
+  it 'stops the poller and restores stdout on each interrupted run' do
+    command = described_class.new
+    started = Queue.new
+    workers = []
 
-    expect(output).to start_with("\e[?25l").and end_with("\e[?25h")
+    allow(command).to receive(:sleep).with(5) do
+      started << Thread.current
+      Thread.stop
+    end
+    allow(command).to receive(:sleep).with(0.1) do
+      workers << Timeout.timeout(5) { started.pop }
+      expect(workers.select(&:alive?)).to eq([workers.last])
+      expect($stdout.sync).to be(true)
+      raise Interrupt
+    end
+
+    [false, true].each do |original_sync|
+      output = capture_stdout do
+        $stdout.sync = original_sync
+        command.run
+
+        expect(workers.last).not_to be_alive
+        expect($stdout.sync).to eq(original_sync)
+      end
+      expect(output).to start_with("\e[?25l").and end_with("\e[?25h")
+    end
+    expect(workers.uniq.size).to eq(2)
+  ensure
+    workers&.each { |worker| worker.kill.join }
   end
 
   context 'with offsetting positions' do
@@ -365,10 +396,14 @@ describe SummaryCommand do
 
   def capture_stdout
     original = $stdout
-    $stdout = StringIO.new
+    reader, writer = IO.pipe
+    $stdout = writer
     yield
-    $stdout.string
+    writer.close
+    reader.read
   ensure
     $stdout = original
+    writer.close unless writer.closed?
+    reader.close
   end
 end

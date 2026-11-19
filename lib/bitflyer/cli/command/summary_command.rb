@@ -22,20 +22,35 @@ class SummaryCommand
     update_balance
   end
 
-  def run
+  def run # rubocop:disable Metrics/MethodLength
     return unless @account_snapshot
 
-    $stdout.sync = true
+    stdout = $stdout
+    original_sync = stdout.sync
+    stdout.sync = true
     print "\e[?25l"
-    Thread.new { poll_account }
+
+    poller = nil
+    Thread.handle_interrupt(Interrupt => :never) do
+      poller = Thread.new { poll_account }
+    end
+
     render
   rescue Interrupt
     # exit
   ensure
-    print "\e[?25h" if @account_snapshot
+    restore_display(poller, stdout, original_sync) if stdout
   end
 
   private
+
+  def restore_display(poller, stdout, original_sync)
+    poller&.kill
+    poller&.join
+  ensure
+    stdout.print "\e[?25h"
+    stdout.sync = original_sync
+  end
 
   def render
     puts "\n" * 3
