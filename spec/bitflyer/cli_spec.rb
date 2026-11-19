@@ -48,8 +48,10 @@ describe Bitflyer::Cli::Runner do
     private_client = stub_private_client
     allow(private_client).to receive(:send_child_order)
 
-    expect { start('order_by_twap', '-a', '0.01', '-t', 'buy', '--number-of-times', '1.9', '-i', '0') }
-      .to output(/--number-of-times must be a whole number/).to_stderr
+    expect do
+      expect { start('order_by_twap', '-a', '0.01', '-t', 'buy', '--number-of-times', '1.9', '-i', '0') }
+        .to raise_error(SystemExit)
+    end.to output(/--number-of-times must be a whole number/).to_stderr
     expect(private_client).not_to have_received(:send_child_order)
   end
 
@@ -58,7 +60,9 @@ describe Bitflyer::Cli::Runner do
     stub_responses(client, send_child_order: { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' })
 
     expect do
-      start('order_by_twap', '--amount', '0.01', '--type', 'buy', '--number-of-times', '2', '--interval', '-1')
+      expect do
+        start('order_by_twap', '--amount', '0.01', '--type', 'buy', '--number-of-times', '2', '--interval', '-1')
+      end.to raise_error(SystemExit)
     end.to output(/^Invalid interval: --interval must be non-negative\.$/).to_stderr
     expect(client).not_to have_received(:send_child_order)
   end
@@ -78,7 +82,9 @@ describe Bitflyer::Cli::Runner do
 
   it 'does not run a command when a required option is missing' do
     allow(OrderByBestCommand).to receive(:new)
-    expect { start('order_by_best', '-a', '0.01') }.to output(/required options/).to_stderr
+    expect do
+      expect { start('order_by_best', '-a', '0.01') }.to raise_error(SystemExit)
+    end.to output(/required options/).to_stderr
     expect(OrderByBestCommand).not_to have_received(:new)
   end
 
