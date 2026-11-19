@@ -23,7 +23,9 @@ class OrderByTWAPCommand
 
   def whole_order_count(number)
     count = number.to_i
-    raise Thor::MalformattedArgumentError, '--number-of-times must be a whole number' unless number == count
+    unless number == count && count.positive?
+      raise Thor::MalformattedArgumentError, '--number-of-times must be a positive whole number'
+    end
 
     count
   end
