@@ -4,6 +4,6 @@ require 'bitflyer/cli'
 
 begin
   Bitflyer::Cli::Runner.start
-rescue CancelAllCommand::Rejected => e
+rescue Authorization::MissingCredentials, CancelAllCommand::Rejected => e
   abort e.message
 end

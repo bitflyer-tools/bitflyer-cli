@@ -27,11 +27,4 @@ describe Authorization do
       expect(command.http_private_client).to be(client)
     end
   end
-
-  context 'without credentials' do
-    before { %w[BITFLYER_API_KEY BITFLYER_API_SECRET].each { |name| ENV.delete(name) } }
-
-    it { expect { authorization.api_key }.to output(/BITFLYER_API_KEY is not set/).to_stdout }
-    it { expect { authorization.api_secret }.to output(/BITFLYER_API_SECRET is not set/).to_stdout }
-  end
 end

@@ -12,7 +12,7 @@ module HasHTTPClient
   end
 
   def http_private_client
-    @http_private_client ||= Bitflyer.http_private_client(api_key, api_secret)
+    @http_private_client ||= Bitflyer.http_private_client(*private_credentials)
   end
 
   private
