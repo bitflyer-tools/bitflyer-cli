@@ -20,14 +20,22 @@ describe OrderByTWAPCommand do
     end
   end
 
-  def run(interval: 10)
-    command.run(thor_options(amount: 0.01, type: 'buy', number_of_times: number_of_times, interval: interval))
+  def run(interval: 10, type: 'buy')
+    command.run(thor_options(amount: 0.01, type: type, number_of_times: number_of_times, interval: interval))
   end
 
   it 'sends the given number of market orders' do
     expect { run }.to output.to_stdout
     expect(private_client).to have_received(:send_child_order)
       .with(product_code: 'FX_BTC_JPY', child_order_type: 'MARKET', side: 'BUY', size: 0.01).exactly(3).times
+  end
+
+  { 'bUy' => 'BUY', 'sElL' => 'SELL' }.each do |type, side|
+    it "uses #{side} for every order when the type is #{type}" do
+      expect { run(type: type) }.to output.to_stdout
+      expect(private_client).to have_received(:send_child_order)
+        .with(product_code: 'FX_BTC_JPY', child_order_type: 'MARKET', side: side, size: 0.01).exactly(3).times
+    end
   end
 
   it 'keeps the submission cadence despite request latency' do

@@ -11,15 +11,23 @@ class OrderByTWAPCommand
     raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
 
     number = whole_order_count(options.number_of_times)
+    side = normalize_side(options.type)
     deadline = monotonic_time
     number.times do |index|
       deadline = wait_for_submission(deadline, interval) if index.positive?
-      order(options.type, options.amount)
+      order(side, options.amount)
       deadline += interval
     end
   end
 
   private
+
+  def normalize_side(type)
+    side = type.to_s.upcase
+    raise Thor::Error, 'Order type must be buy or sell' unless %w[BUY SELL].include?(side)
+
+    side
+  end
 
   def whole_order_count(number)
     count = number.to_i
@@ -40,11 +48,11 @@ class OrderByTWAPCommand
     deadline
   end
 
-  def order(type, amount) # rubocop:disable Metrics/MethodLength
+  def order(side, amount) # rubocop:disable Metrics/MethodLength
     response = http_private_client.send_child_order(
       product_code: 'FX_BTC_JPY',
       child_order_type: 'MARKET',
-      side: type.upcase,
+      side: side,
       size: amount
     )
 

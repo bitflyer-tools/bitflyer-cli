@@ -53,6 +53,16 @@ describe Bitflyer::Cli::Runner do
     expect(private_client).not_to have_received(:send_child_order)
   end
 
+  it 'rejects an unsupported TWAP order type without sending orders' do
+    client = stub_private_client
+    stub_responses(client, send_child_order: { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' })
+
+    expect do
+      start('order_by_twap', '--amount', '0.01', '--type', 'hold', '--number-of-times', '2', '--interval', '0')
+    end.to output(/^Order type must be buy or sell$/).to_stderr
+    expect(client).not_to have_received(:send_child_order)
+  end
+
   it 'rejects a negative TWAP interval before sending any orders' do
     client = stub_private_client
     stub_responses(client, send_child_order: { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' })
