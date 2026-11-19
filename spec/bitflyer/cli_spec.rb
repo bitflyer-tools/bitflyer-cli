@@ -99,13 +99,15 @@ describe Bitflyer::Cli::Runner do
     end
   end
 
-  it 'rejects a fractional TWAP order count without sending orders' do
-    private_client = stub_private_client
-    allow(private_client).to receive(:send_child_order)
+  %w[0 -1 1.9].each do |count|
+    it "rejects a TWAP order count of #{count} without sending orders" do
+      private_client = stub_private_client
+      allow(private_client).to receive(:send_child_order)
 
-    expect { start('order_by_twap', '-a', '0.01', '-t', 'buy', '--number-of-times', '1.9', '-i', '0') }
-      .to output(/--number-of-times must be a whole number/).to_stderr
-    expect(private_client).not_to have_received(:send_child_order)
+      expect { start('order_by_twap', '-a', '0.01', '-t', 'buy', "--number-of-times=#{count}", '-i', '0') }
+        .to output(/^--number-of-times must be a positive whole number$/).to_stderr
+      expect(private_client).not_to have_received(:send_child_order)
+    end
   end
 
   it 'rejects a negative TWAP interval before sending any orders' do
