@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
+require 'colorize'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/has_realtime_client'
-require 'bitflyer/cli/ext/string'
 require 'bitflyer/cli/model/position'
 
 class SummaryCommand
@@ -80,8 +80,8 @@ class SummaryCommand
     average = position.average
     values = price ? marked_values(price, position, balance, average) : "Spread:   N/A\nBalance:  N/A (N/A)"
     <<~EOS
-      \e[4F\e[0JCurrent:  #{price ? price.to_i.to_s.split_by_comma : 'Stale'}
-      Position: #{average.to_s.split_by_comma} * #{position.size.to_f}
+      \e[4F\e[0JCurrent:  #{price ? group_digits(price.to_i) : 'Stale'}
+      Position: #{group_digits(average)} * #{position.size.to_f}
       #{values}#{' [stale]' if stale}
     EOS
   end
@@ -91,12 +91,17 @@ class SummaryCommand
     spread = position.flat? ? 0 : price.to_i - average
     <<~EOS.chomp
       Spread:   #{colored_amount(spread)}
-      Balance:  #{(balance + profit).to_s.split_by_comma.ljust(15, ' ')} (#{colored_amount(profit)})
+      Balance:  #{group_digits(balance + profit).ljust(15, ' ')} (#{colored_amount(profit)})
     EOS
   end
 
   def colored_amount(amount)
-    amount.to_s.split_by_comma.color_with_number(amount)
+    formatted = group_digits(amount)
+    amount >= 0 ? "+#{formatted.colorize(:green)}" : formatted.colorize(:red)
+  end
+
+  def group_digits(amount)
+    amount.to_s.reverse.gsub(/(\d{3})(?=\d)/, '\1,').reverse
   end
 
   def fresh_price

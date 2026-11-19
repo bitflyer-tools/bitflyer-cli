@@ -74,7 +74,17 @@ describe SummaryCommand do
     output = capture_stdout { run_once(command) }
 
     expect(output).to include('Current:  1,010,000', 'Position: 1,000,000 * 0.1', 'Balance:  51,000')
-    expect(output).to match(/Spread:   \+.*10,000/).and match(/\(\+.*1,000/)
+    expect(output).to include("Spread:   +\e[0;32;49m10,000\e[0m", "(+\e[0;32;49m1,000\e[0m)")
+  end
+
+  it 'renders a negative spread and loss in red' do
+    command = described_class.new
+    executions_callback.first.call([{ 'price' => 990_000 }])
+
+    output = capture_stdout { run_once(command) }
+
+    expect(output).to include("Spread:   \e[0;31;49m-10,000\e[0m")
+    expect(output).to include("Balance:  #{'49,000'.ljust(15)} (\e[0;31;49m-1,000\e[0m)")
   end
 
   it 'keeps the last complete account data until a scheduled refresh succeeds' do
@@ -314,7 +324,7 @@ describe SummaryCommand do
 
       output = capture_stdout { run_once(command) }
 
-      expect(output).to include('Position: 0 * 0.0', "Spread:   #{'0'.color_with_number(0)}", 'Balance:  60,000')
+      expect(output).to include('Position: 0 * 0.0', "Spread:   +\e[0;32;49m0\e[0m", 'Balance:  60,000')
     end
   end
 
