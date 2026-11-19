@@ -91,6 +91,16 @@ describe 'bitflyer executable' do
     end.to output("Cancellation request rejected. Order is no longer active.\n").to_stderr
   end
 
+  it 'reports the exchange status when a cancellation rejection has no message' do
+    stub_credentials
+    stub_cancellation_response('400', JSON.generate(status: -200))
+
+    expect do
+      expect { run_cli('cancel_order', 'child', 'JOR-order') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Cancellation request rejected (status -200).\n").to_stderr
+  end
+
   it 'reports an empty HTTP 502 as unverified without printing acceptance' do
     stub_credentials
     stub_cancellation_response('502', '')
