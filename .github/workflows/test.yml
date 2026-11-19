@@ -20,6 +20,8 @@ jobs:
         run: bundle exec rubocop
       - name: Test release version bumps
         run: bash test/release_bump.sh
+      - name: Build gem
+        run: gem build bitflyer-cli.gemspec
 
   test:
     runs-on: ubuntu-24.04
