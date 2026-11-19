@@ -1,4 +1,6 @@
 require 'spec_helper'
+require 'open3'
+require 'rbconfig'
 require 'shellwords'
 
 describe Bitflyer::Cli::Runner do
@@ -7,6 +9,28 @@ describe Bitflyer::Cli::Runner do
 
   def start(*args)
     described_class.start(args)
+  end
+
+  it 'preserves existing String formatters when loading the CLI' do
+    lib = File.expand_path('../../lib', __dir__)
+    output, status = Open3.capture2e(RbConfig.ruby, '-I', lib, '-e', <<~'RUBY')
+      class String
+        def split_by_comma
+          :original_grouping
+        end
+
+        def color_with_number(_number)
+          :original_coloring
+        end
+      end
+
+      require 'bitflyer/cli'
+
+      abort 'String#split_by_comma changed' unless '1000'.split_by_comma == :original_grouping
+      abort 'String#color_with_number changed' unless '1000'.color_with_number(1000) == :original_coloring
+    RUBY
+
+    expect(status).to be_success, output
   end
 
   it 'shows usage for an individual command' do
