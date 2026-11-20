@@ -18,68 +18,90 @@ describe Bitflyer::Cli::RealtimeClient do
     stub_const('OpenSSL::SSL::SSLContext::DEFAULT_CERT_STORE', store)
   end
 
-  it 'keeps a pending upgrade and retries a DNS failure after the peer closes' do
-    ticks = Queue.new
-    steps = Queue.new
-    upgrades = Queue.new
-    disconnected = Queue.new
-    monitor = nil
-    allow_any_instance_of(transport_class).to receive(:start_monitoring).and_wrap_original do |start|
-      monitor = start.call
-    end
-    allow_any_instance_of(transport_class).to receive(:sleep) do
-      ticks << true
-      steps.pop
-    end
+  [SocketError, Errno::ECONNREFUSED].each do |error_class|
+    context "when a reconnect raises #{error_class}" do
+      let(:connection_error) { error_class.new }
 
-    with_tls_server(connections: 2, upgrades: upgrades) do |requests, ready|
-      client = described_class.new
-      transport = client.websocket_client
-      transport.disconnected = ->(error) { disconnected << error }
-      client.executions_fx_btc_jpy = ->(_execution) {}
-      connection = transport.websocket_client
-
-      Timeout.timeout(5) do
-        expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
-        ticks.pop
-        steps << true
-        ticks.pop
-        expect(transport.websocket_client).to equal(connection)
-        expect(connection).not_to be_open
-
-        upgrades << true
-        ready << true
-        disconnected.pop
-        dns_error = SocketError.new('Temporary failure in name resolution')
-        allow(TCPSocket).to receive(:new).and_wrap_original do |connect, *args|
-          if dns_error
-            error = dns_error
-            dns_error = nil
-            raise error
-          end
-
-          connect.call(*args)
+      it 'keeps a pending upgrade and resumes the summary feed after a failed reconnect' do
+        ticks = Queue.new
+        steps = Queue.new
+        upgrades = Queue.new
+        disconnected = Queue.new
+        monitor = nil
+        allow_any_instance_of(transport_class).to receive(:start_monitoring).and_wrap_original do |start|
+          monitor = start.call
         end
-        steps << true
-        ticks.pop
-        expect(transport.websocket_client).to equal(connection)
+        allow_any_instance_of(transport_class).to receive(:sleep) do
+          ticks << true
+          steps.pop
+        end
 
-        steps << true
-        expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
-        ticks.pop
-        expect(transport.websocket_client).not_to equal(connection)
+        with_tls_server(connections: 2, upgrades: upgrades, keep_open: true) do |requests, ready|
+          stub_responses(stub_private_client, positions: [], collateral: { 'collateral' => 0 })
+          command = SummaryCommand.new
+          transport = command.realtime_client.websocket_client
+          on_disconnect = transport.disconnected
+          transport.disconnected = lambda do |error|
+            on_disconnect.call(error)
+            disconnected << error
+          end
+          connection = transport.websocket_client
 
-        upgrades << true
-        ready << true
-        disconnected.pop
+          Timeout.timeout(5) do
+            expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
+            ticks.pop
+            steps << true
+            ticks.pop
+            expect(transport.websocket_client).to equal(connection)
+            expect(connection).not_to be_open
+
+            upgrades << true
+            ready << true
+            disconnected.pop
+            expect(command.send(:fresh_price)).to be_nil
+            failure = connection_error
+            allow(TCPSocket).to receive(:new).and_wrap_original do |connect, *args|
+              if failure
+                error = failure
+                failure = nil
+                raise error
+              end
+
+              connect.call(*args)
+            end
+            steps << true
+            ticks.pop
+            expect(transport.websocket_client).to equal(connection)
+            expect(monitor).to be_alive
+
+            steps << true
+            expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
+            ticks.pop
+            expect(transport.websocket_client).not_to equal(connection)
+
+            upgrades << true
+            ready << true
+            sleep 0.01 until command.send(:fresh_price) == 1_010_000.0
+          end
+        ensure
+          monitor&.kill&.join
+          transport&.websocket_client&.close
+        end
       end
-    ensure
-      monitor&.kill&.join
-      transport&.websocket_client&.close
     end
   end
 
   after { server.close }
+
+  it 'times out a stalled TCP dial before starting TLS' do
+    stub_const('Bitflyer::Cli::RealtimeClient::TLSConnection::TCP_CONNECT_TIMEOUT', 0.05)
+    expect(TCPSocket).to receive(:new).with('localhost', server.addr[1]) { sleep }
+    expect(OpenSSL::SSL::SSLSocket).not_to receive(:new)
+
+    Timeout.timeout(1) do
+      expect { SummaryCommand.new }.to raise_error(SocketError, 'TCP connection timed out')
+    end
+  end
 
   it 'closes the TCP connection when the peer stalls the TLS handshake' do
     stub_const('Bitflyer::Cli::RealtimeClient::TLSConnection::TLS_HANDSHAKE_TIMEOUT', 0.25)
@@ -169,7 +191,9 @@ describe Bitflyer::Cli::RealtimeClient do
     requests = Queue.new
     ready = Queue.new
     worker = Thread.new do
-      connections.times { serve_execution(context, requests, ready, upgrades, keep_open) }
+      connections.times do |index|
+        serve_execution(context, requests, ready, upgrades, keep_open && index == connections - 1)
+      end
     end
     yield requests, ready
   ensure

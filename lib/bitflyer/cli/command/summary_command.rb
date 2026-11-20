@@ -18,8 +18,8 @@ class SummaryCommand
     @execution = nil
     realtime_client.disconnected = ->(_error) { @execution = nil }
     realtime_client.executions_fx_btc_jpy = lambda { |message|
-      execution = message.last
-      @execution = [execution['price'].to_f, monotonic_time] if execution
+      price = Float(message.last&.[]('price'), exception: false)
+      @execution = [price, monotonic_time] if price&.finite? && price.positive?
     }
 
     update_balance
@@ -82,17 +82,22 @@ class SummaryCommand
       sleep 5
       update_balance
     rescue IOError, Timeout::Error, SocketError, SystemCallError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse
-      position, balance = @account_snapshot
-      @account_snapshot = [position, balance, true].freeze
+      mark_account_stale
     end
   end
 
   def update_balance
     position = fetch_position
-    return unless position
+    return mark_account_stale unless position
 
     balance = http_private_client.collateral['collateral'].to_i
     @account_snapshot = [position, balance, false].freeze
+  end
+
+  def mark_account_stale
+    return unless @account_snapshot
+
+    @account_snapshot = [*@account_snapshot.first(2), true].freeze
   end
 
   def frame(account_snapshot, price)
