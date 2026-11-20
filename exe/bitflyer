@@ -4,7 +4,7 @@ require 'bitflyer/cli'
 
 begin
   Bitflyer::Cli::Runner.start
-rescue Authorization::MissingCredentials, CancelAllCommand::Rejected,
-       CancelOrderCommand::Failed, OpenOrdersCommand::LookupFailed => e
+rescue Authorization::MissingCredentials, CancelAllCommand::Rejected, CancelOrderCommand::Failed,
+       OpenOrdersCommand::LookupFailed, HasHTTPClient::TickerError => e
   abort e.message
 end

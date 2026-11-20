@@ -8,8 +8,21 @@ describe 'bitflyer executable' do
     load File.expand_path('../../exe/bitflyer', __dir__)
   end
 
+  it 'prints a ticker rejection to stderr and exits unsuccessfully without placing an order' do
+    public_client = stub_public_client
+    stub_responses(public_client, ticker: { 'status' => -1, 'error_message' => 'Ticker unavailable' })
+    stub_responses(private_client, send_child_order: {})
+
+    expect do
+      expect { run_cli('order_by_best', '--amount=0.01', '--type=buy') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Ticker error: Ticker unavailable\n").to_stderr
+    expect(private_client).not_to have_received(:send_child_order)
+  end
+
   it 'prints a cancel-all rejection to stderr and exits unsuccessfully' do
-    stub_responses(private_client, cancel_all_child_orders: { 'status' => -200, 'error_message' => 'rejected' })
+    stub_credentials
+    stub_cancellation_response('400', JSON.generate(status: -200, error_message: 'rejected'))
 
     expect do
       expect { run_cli('cancel_all') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -17,11 +30,11 @@ describe 'bitflyer executable' do
   end
 
   it 'completes normally when the cancellation is accepted' do
-    stub_responses(private_client, cancel_all_child_orders: '')
+    stub_credentials
+    transport = stub_cancellation_response('200', '')
 
     expect { run_cli('cancel_all') }.to output('').to_stderr
-    expect(Bitflyer).to have_received(:http_private_client).with('key', 'secret')
-    expect(private_client).to have_received(:cancel_all_child_orders)
+    expect(transport).to have_received(:request).once
   end
 
   [
@@ -30,25 +43,70 @@ describe 'bitflyer executable' do
     %w[BITFLYER_API_KEY BITFLYER_API_SECRET]
   ].each do |missing|
     it "exits before constructing a private client if missing #{missing.join(' and ')}" do
-      stub_responses(private_client, cancel_all_child_orders: '')
+      stub_credentials
+      expect(CancellationClient).not_to receive(:new)
       missing.each { |name| allow(ENV).to receive(:fetch).with(name, nil).and_return(nil) }
 
       expect do
         expect { run_cli('cancel_all') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
       end.to output('').to_stdout.and output("Set the required environment variables: #{missing.join(', ')}\n").to_stderr
-      expect(Bitflyer).not_to have_received(:http_private_client)
-      expect(private_client).not_to have_received(:cancel_all_child_orders)
     end
+  end
+
+  it 'exits before constructing a persistent private client when credentials are missing' do
+    stub_credentials
+    allow(ENV).to receive(:fetch).with('BITFLYER_API_KEY', nil).and_return(nil)
+    expect(Bitflyer::Cli::PersistentHTTPClient).not_to receive(:new)
+
+    expect do
+      expect { run_cli('order_by_twap', '-a=0.01', '-t=buy', '-i=0', '-n=1') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Set the required environment variables: BITFLYER_API_KEY\n").to_stderr
   end
 
   it 'exits before sending a cancellation request when credentials are missing' do
     stub_credentials
     allow(ENV).to receive(:fetch).with('BITFLYER_API_SECRET', nil).and_return(nil)
+    expect(CancellationClient).not_to receive(:new)
 
     expect do
       expect { run_cli('cancel_order', 'child', 'JOR-order') }
         .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("Set the required environment variables: BITFLYER_API_SECRET\n").to_stderr
+  end
+
+  ['<html>Bad Gateway</html>', ''].each do |body|
+    it "reports an HTTP 502 with #{body.empty? ? 'an empty body' : 'an HTML body'} as unverified" do
+      stub_credentials
+      stub_cancellation_response('502', body)
+
+      expect do
+        expect { run_cli('cancel_all') }
+          .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not verify cancel-all acceptance from bitFlyer (HTTP 502).\n").to_stderr
+    end
+  end
+
+  it 'reports a cancel-all timeout as unverified without retrying' do
+    stub_credentials
+    transport = stub_cancellation_response('200', nil)
+    allow(transport).to receive(:request).and_raise(Net::ReadTimeout)
+
+    expect do
+      expect { run_cli('cancel_all') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not verify cancel-all acceptance from bitFlyer.\n").to_stderr
+    expect(transport).to have_received(:request).once
+  end
+
+  it 'exits before constructing an SDK private client when credentials are missing' do
+    stub_credentials
+    allow(ENV).to receive(:fetch).with('BITFLYER_API_KEY', nil).and_return(nil)
+    expect(Bitflyer).not_to receive(:http_private_client)
+
+    expect do
+      expect { run_cli('open_orders') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Set the required environment variables: BITFLYER_API_KEY\n").to_stderr
   end
 
   it 'routes open_orders through the CLI' do
@@ -118,6 +176,16 @@ describe 'bitflyer executable' do
     expect do
       expect { run_cli('cancel_order', 'child', 'JOR-order') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("Cancellation request rejected. Order is no longer active.\n").to_stderr
+  end
+
+  it 'reports the exchange status when a cancellation rejection has no message' do
+    stub_credentials
+    stub_cancellation_response('400', JSON.generate(status: -200))
+
+    expect do
+      expect { run_cli('cancel_order', 'child', 'JOR-order') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Cancellation request rejected (status -200).\n").to_stderr
   end
 
   it 'reports an empty HTTP 502 as unverified without printing acceptance' do
