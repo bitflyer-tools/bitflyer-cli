@@ -90,7 +90,9 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     position = fetch_position
     return mark_account_stale unless position
 
-    balance = http_private_client.collateral['collateral'].to_i
+    balance = fetch_collateral
+    return mark_account_stale if balance.nil?
+
     @account_snapshot = [position, balance, false].freeze
   end
 
@@ -98,6 +100,19 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     return unless @account_snapshot
 
     @account_snapshot = [*@account_snapshot.first(2), true].freeze
+  end
+
+  def fetch_collateral
+    response = http_private_client.collateral
+    if response.is_a?(Hash)
+      status = response['status']
+      collateral = response['collateral']
+      rejected = status.is_a?(Numeric) && status.negative?
+      return collateral.to_i if !rejected && collateral.is_a?(Numeric) && collateral.finite?
+    end
+
+    warn "Failed to look up collateral: #{response.inspect}"
+    nil
   end
 
   def frame(account_snapshot, price)
