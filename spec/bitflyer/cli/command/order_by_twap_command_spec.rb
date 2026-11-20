@@ -1,7 +1,7 @@
 require 'spec_helper'
 
 describe OrderByTWAPCommand do
-  let!(:private_client) { stub_private_client }
+  let!(:private_client) { stub_persistent_client }
   let(:command) { described_class.new }
   let(:response) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' } }
   let(:number_of_times) { 3 }
