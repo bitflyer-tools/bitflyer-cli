@@ -6,7 +6,7 @@ require 'bitflyer/cli/has_realtime_client'
 require 'bitflyer/cli/model/position'
 require 'bitflyer/cli/persistent_http_client'
 
-class SummaryCommand # rubocop:disable Metrics/ClassLength
+class SummaryCommand
   include HasHTTPClient
   include HasRealtimeClient
 
@@ -36,9 +36,7 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     print "\e[?25l"
 
     poller = nil
-    Thread.handle_interrupt(Interrupt => :never) do
-      poller = Thread.new { poll_account }
-    end
+    Thread.handle_interrupt(Interrupt => :never) { poller = Thread.new { poll_account } }
 
     render
   rescue Interrupt
@@ -59,8 +57,7 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
 
   def render
     puts "\n" * 3
-    previous_frame = nil
-    previous_inputs = nil
+    previous_frame = previous_inputs = nil
 
     loop do
       previous_inputs, previous_frame = redraw(previous_inputs, previous_frame)

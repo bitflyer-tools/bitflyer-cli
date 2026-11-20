@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/order_rejected'
 
 class StopByRangeCommand
   include HasHTTPClient
@@ -93,10 +94,7 @@ class StopByRangeCommand
 
   def submit_stop(stop, description)
     response = http_private_client.send_parent_order(order_method: 'SIMPLE', parameters: [stop])
-    if response['parent_order_acceptance_id'].nil?
-      puts "An error has occurred#{response}"
-    else
-      puts "Set stop order #{description}"
-    end
+    Bitflyer::Cli::OrderRejected.check!(response, 'parent_order_acceptance_id')
+    puts "Set stop order #{description}"
   end
 end
