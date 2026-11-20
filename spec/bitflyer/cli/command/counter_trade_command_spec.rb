@@ -44,6 +44,7 @@ describe CounterTradeCommand do
   end
 
   include_examples 'rejects malformed position snapshots', :send_child_order
+  include_examples 'rejects unrepresentable order sizes', :send_child_order
 
   context 'when the position lookup is rejected' do
     let(:positions) { { 'status' => -200, 'error_message' => 'Invalid API key' } }

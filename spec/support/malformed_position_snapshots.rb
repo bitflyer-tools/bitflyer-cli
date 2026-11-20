@@ -23,3 +23,20 @@ RSpec.shared_examples 'rejects malformed position snapshots' do |order_method|
     end
   end
 end
+
+RSpec.shared_examples 'rejects unrepresentable order sizes' do |order_method|
+  {
+    'an overflowing position' => ['1e309'],
+    'an underflowing position' => ['1e-400'],
+    'an overflowing net position' => %w[1e308 1e308]
+  }.each do |description, sizes|
+    context "with #{description}" do
+      let(:positions) { sizes.map { |size| position(side: 'BUY', price: '1e6', size: size) } }
+
+      it 'reports the invalid order size and submits no order' do
+        expect { run_command }.to output(/Cannot submit order: position size/).to_stderr
+        expect(private_client).not_to have_received(order_method)
+      end
+    end
+  end
+end

@@ -11,6 +11,7 @@ describe StopByRangeCommand do
   end
 
   include_examples 'rejects malformed position snapshots', :send_parent_order
+  include_examples 'rejects unrepresentable order sizes', :send_parent_order
 
   def run(range = 5000)
     described_class.new.run(thor_options(range: range))

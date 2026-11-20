@@ -37,6 +37,14 @@ module HasHTTPClient
     ticker
   end
 
+  def position_order_size(position)
+    size = position.size.abs.to_f
+    return size if size.finite? && size.positive?
+
+    warn 'Cannot submit order: position size must be positive and finite'
+    nil
+  end
+
   def fetch_position
     positions = http_private_client.positions
     return Position.new(positions) if positions.is_a?(Array)
