@@ -6,7 +6,7 @@ require 'bitflyer/cli/has_realtime_client'
 require 'bitflyer/cli/model/position'
 require 'bitflyer/cli/persistent_http_client'
 
-class SummaryCommand
+class SummaryCommand # rubocop:disable Metrics/ClassLength
   include HasHTTPClient
   include HasRealtimeClient
 
@@ -36,9 +36,7 @@ class SummaryCommand
     print "\e[?25l"
 
     poller = nil
-    Thread.handle_interrupt(Interrupt => :never) do
-      poller = Thread.new { poll_account }
-    end
+    Thread.handle_interrupt(Interrupt => :never) { poller = Thread.new { poll_account } }
 
     render
   rescue Interrupt
@@ -59,8 +57,7 @@ class SummaryCommand
 
   def render
     puts "\n" * 3
-    previous_frame = nil
-    previous_inputs = nil
+    previous_frame = previous_inputs = nil
 
     loop do
       previous_inputs, previous_frame = redraw(previous_inputs, previous_frame)
@@ -90,12 +87,27 @@ class SummaryCommand
     position = fetch_position
     return mark_account_stale unless position
 
-    balance = http_private_client.collateral['collateral'].to_i
+    balance = fetch_collateral
+    return mark_account_stale if balance.nil?
+
     @account_snapshot = [position, balance, false].freeze
   end
 
   def mark_account_stale
     @account_snapshot = [*@account_snapshot.first(2), true].freeze if @account_snapshot
+  end
+
+  def fetch_collateral
+    response = http_private_client.collateral
+    if response.is_a?(Hash)
+      status = response['status']
+      collateral = response['collateral']
+      rejected = status.is_a?(Numeric) && status.negative?
+      return collateral.to_i if !rejected && collateral.is_a?(Numeric) && collateral.finite?
+    end
+
+    warn "Failed to look up collateral: #{response.inspect}"
+    nil
   end
 
   def frame(account_snapshot, price)

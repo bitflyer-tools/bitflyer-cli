@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/order_rejected'
 
 class CounterTradeCommand
   include HasHTTPClient
@@ -27,8 +28,7 @@ class CounterTradeCommand
       side: type,
       size: size
     )
-    return puts "An error has occurred#{response}" if response['child_order_acceptance_id'].nil?
-
+    Bitflyer::Cli::OrderRejected.check!(response, 'child_order_acceptance_id')
     puts "Clear position #{type} / #{size}"
   end
 end

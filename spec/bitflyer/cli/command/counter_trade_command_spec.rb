@@ -104,8 +104,8 @@ describe CounterTradeCommand do
     let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.1)] }
     let(:accepted) { { 'status' => -205 } }
 
-    it 'prints the error response' do
-      expect { described_class.new.run }.to output(/An error has occurred/).to_stdout
+    it 'raises with the exchange rejection' do
+      expect { described_class.new.run }.to raise_error(Bitflyer::Cli::OrderRejected, /Order rejected:.*-205/)
     end
   end
 end
