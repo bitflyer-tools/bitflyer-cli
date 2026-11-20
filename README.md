@@ -6,7 +6,9 @@
 ![](http://ruby-gem-downloads-badge.herokuapp.com/bitflyer-cli?type=total)
 ![GitHub](https://img.shields.io/github/license/bitflyer-tools/bitflyer-cli.svg)
 
-bitflyer-cli is a CLI tool for [Bitflyer](https://bitflyer.jp/) FXBTC.
+bitflyer-cli is a command-line tool for the BTC-CFD/JPY market on
+[bitFlyer Crypto CFD](https://lightning.bitflyer.com/docs?lang=en#api-documentation).
+This market uses `FX_BTC_JPY` as its API product code.
 
 ## Installation
 
