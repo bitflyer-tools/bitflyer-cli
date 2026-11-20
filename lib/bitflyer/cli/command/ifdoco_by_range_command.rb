@@ -14,7 +14,7 @@ class IFDOCOByRangeCommand
     range = options.range.to_f
     validate_inputs!(side: side, size: size, range: range, ratio: ratio)
 
-    current_price = http_public_client.ticker(product_code: 'FX_BTC_JPY')['ltp'].to_i
+    current_price = fetch_ticker_price('ltp')
     profit_price, loss_price = exit_prices(side: side, current_price: current_price, range: range, ratio: ratio)
     request = request(side: side, size: size, profit_price: profit_price, loss_price: loss_price)
     response = http_private_client.send_parent_order(**request)

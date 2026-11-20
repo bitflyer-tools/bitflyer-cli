@@ -16,6 +16,13 @@ module ClientDoubles
     end
   end
 
+  def stub_persistent_client
+    stub_private_client.tap do |client|
+      allow(client).to receive(:close)
+      allow(Bitflyer::Cli::PersistentHTTPClient).to receive(:new).and_return(client)
+    end
+  end
+
   def stub_realtime_client
     instance_double(Bitflyer::Cli::RealtimeClient, :executions_fx_btc_jpy= => nil).tap do |client|
       allow(Bitflyer::Cli::RealtimeClient).to receive(:new).and_return(client)

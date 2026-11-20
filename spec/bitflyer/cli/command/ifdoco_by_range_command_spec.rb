@@ -48,6 +48,29 @@ describe IFDOCOByRangeCommand do
       .with(**ifdoco_order(side: 'SELL', counter_side: 'BUY', profit_price: 994_000, loss_price: 1_004_000))
   end
 
+  it 'reports a ticker rejection before submitting an IFDOCO order' do
+    stub_responses(public_client, ticker: { 'status' => -1, 'error_message' => 'Ticker unavailable' })
+
+    expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, 'Ticker error: Ticker unavailable')
+    expect(private_client).not_to have_received(:send_parent_order)
+  end
+
+  it 'rejects an unexpected ticker response' do
+    stub_responses(public_client, ticker: nil)
+
+    expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, /Ticker error: unexpected response/)
+    expect(private_client).not_to have_received(:send_parent_order)
+  end
+
+  [{}, { 'ltp' => 0 }, { 'ltp' => -1 }, { 'ltp' => 'unavailable' }, { 'ltp' => Float::INFINITY }].each do |ticker|
+    it "rejects a ticker with an unusable last traded price (#{ticker.inspect})" do
+      stub_responses(public_client, ticker: ticker)
+
+      expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, /Ticker error: ltp/)
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+  end
+
   %w[buy sell].each do |side|
     context "for a #{side} order" do
       [

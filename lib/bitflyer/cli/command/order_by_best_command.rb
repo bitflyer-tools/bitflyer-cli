@@ -12,8 +12,7 @@ class OrderByBestCommand
     type = options.type
     side = normalize_side(type)
 
-    ticker = http_public_client.ticker(product_code: 'FX_BTC_JPY')
-    price = side == 'BUY' ? ticker['best_bid'] : ticker['best_ask']
+    price = fetch_ticker_price(side == 'BUY' ? 'best_bid' : 'best_ask')
 
     response = http_private_client.send_child_order(
       product_code: 'FX_BTC_JPY',

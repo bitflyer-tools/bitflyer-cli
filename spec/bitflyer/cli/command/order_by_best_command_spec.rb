@@ -46,6 +46,26 @@ describe OrderByBestCommand do
     expect(public_client).to have_received(:ticker).with(product_code: 'FX_BTC_JPY')
   end
 
+  it 'reports a ticker rejection before submitting a limit order' do
+    stub_responses(public_client, ticker: {
+                     'status' => -1, 'error_message' => 'Ticker unavailable', 'best_bid' => 1_000_000
+                   })
+
+    expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, 'Ticker error: Ticker unavailable')
+    expect(private_client).not_to have_received(:send_child_order)
+  end
+
+  { 'buy' => 'best_bid', 'sell' => 'best_ask' }.each do |side, field|
+    it "requires #{field} for a #{side} limit order" do
+      ticker = { 'best_bid' => 1_000_000, 'best_ask' => 1_000_100 }
+      ticker.delete(field)
+      stub_responses(public_client, ticker: ticker)
+
+      expect { run(side) }.to raise_error(HasHTTPClient::TickerError, /Ticker error: #{field}/)
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+  end
+
   context 'when the order is rejected' do
     let(:response) { { 'status' => -200 } }
 
