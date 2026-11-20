@@ -7,7 +7,7 @@ describe StopByRangeCommand do
   let(:response) { { 'parent_order_acceptance_id' => 'JRF20180101-000000-000001' } }
 
   before do
-    stub_responses(private_client, positions: positions, send_parent_order: response)
+    stub_responses(private_client, positions: positions, parent_orders: [], send_parent_order: response)
   end
 
   include_examples 'rejects malformed position snapshots', :send_parent_order
@@ -58,6 +58,76 @@ describe StopByRangeCommand do
       expect { run }.to output("Set stop order SELL / 995000.0 / 0.2\n").to_stdout
       expect(private_client).to have_received(:send_parent_order)
         .with(stop_order(side: 'SELL', trigger_price: 995_000.0, size: 0.2))
+    end
+
+    context 'with active parent orders' do
+      let(:parent) { { 'id' => 1, 'parent_order_id' => 'JCO-stop', 'parent_order_type' => 'STOP' } }
+      let(:parameters) do
+        {
+          'product_code' => 'FX_BTC_JPY', 'condition_type' => 'STOP', 'side' => 'SELL',
+          'trigger_price' => 995_000, 'size' => 0.2, 'price' => 0, 'offset' => 0
+        }
+      end
+
+      def stub_parent_detail(method: 'SIMPLE', parameters: [self.parameters])
+        stub_responses(private_client, parent_order: { 'order_method' => method, 'parameters' => parameters })
+      end
+
+      it 'submits once and reports the existing stop on the next invocation' do
+        expect { run }.to output(/Set stop order/).to_stdout
+        stub_responses(private_client, parent_orders: [parent])
+        stub_parent_detail
+
+        expect { run }.to output("Existing stop order SELL / 995000.0 / 0.2 (JCO-stop)\n").to_stdout
+        expect(private_client).to have_received(:parent_orders)
+          .with(product_code: 'FX_BTC_JPY', parent_order_state: 'ACTIVE', count: 100, before: nil).twice
+        expect(private_client).to have_received(:parent_order).with(parent_order_id: 'JCO-stop')
+        expect(private_client).to have_received(:send_parent_order).once
+      end
+
+      it 'checks subsequent pages for a matching stop' do
+        first_page = (2..101).map { |id| { 'id' => id, 'parent_order_type' => 'OCO' } }
+        allow(private_client).to receive(:parent_orders).with(hash_including(before: nil)).and_return(first_page)
+        allow(private_client).to receive(:parent_orders).with(hash_including(before: 2)).and_return([parent])
+        stub_parent_detail
+
+        expect { run }.to output(/Existing stop order.*JCO-stop/).to_stdout
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
+      {
+        'product_code' => 'BTC_JPY', 'condition_type' => 'STOP_LIMIT', 'side' => 'BUY',
+        'trigger_price' => 994_000, 'size' => 0.1
+      }.each do |key, value|
+        it "submits a stop when the active order has a different #{key}" do
+          stub_responses(private_client, parent_orders: [parent])
+          stub_parent_detail(parameters: [parameters.merge(key => value)])
+
+          expect { run }.to output(/Set stop order/).to_stdout
+          expect(private_client).to have_received(:send_parent_order).once
+        end
+      end
+
+      it 'submits a stop when the matching leg belongs to a linked strategy' do
+        stub_responses(private_client, parent_orders: [parent.merge('parent_order_type' => 'OCO')])
+
+        expect { run }.to output(/Set stop order/).to_stdout
+        expect(private_client).to have_received(:send_parent_order).once
+      end
+
+      it 'aborts without submitting when the active order list is unavailable' do
+        stub_responses(private_client, parent_orders: { 'status' => -200 })
+
+        expect { run }.to raise_error(StopByRangeCommand::LookupFailed, /active parent orders/)
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
+      it 'aborts without submitting when the stop details are unavailable' do
+        stub_responses(private_client, parent_orders: [parent], parent_order: { 'status' => -200 })
+
+        expect { run }.to raise_error(StopByRangeCommand::LookupFailed, /JCO-stop/)
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
     end
 
     context 'when the stop order is rejected' do

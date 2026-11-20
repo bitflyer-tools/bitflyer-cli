@@ -8,6 +8,17 @@ describe 'bitflyer executable' do
     load File.expand_path('../../exe/bitflyer', __dir__)
   end
 
+  it 'prints a protective stop lookup failure to stderr and exits unsuccessfully without placing an order' do
+    positions = [position(side: 'BUY', price: 1_000_000, size: 0.2)]
+    stub_responses(private_client, positions: positions, parent_orders: { 'status' => -200 }, send_parent_order: {})
+
+    expect do
+      expect { run_cli('stop_by_range', '--range=5000') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output(/Failed to look up active parent orders:.*-200/).to_stderr
+    expect(private_client).not_to have_received(:send_parent_order)
+  end
+
   it 'prints a ticker rejection to stderr and exits unsuccessfully without placing an order' do
     public_client = stub_public_client
     stub_responses(public_client, ticker: { 'status' => -1, 'error_message' => 'Ticker unavailable' })
@@ -192,7 +203,8 @@ describe 'bitflyer executable' do
       let(:order_method) { :"send_#{order_type}_order" }
 
       before do
-        stub_responses(private_client, positions: [position(side: 'BUY', price: 1_000_000, size: 0.1)])
+        positions = [position(side: 'BUY', price: 1_000_000, size: 0.1)]
+        stub_responses(private_client, positions: positions, parent_orders: [])
         stub_responses(stub_public_client, ticker: { 'best_bid' => 1_000_000, 'ltp' => 1_000_000 })
       end
 

@@ -5,6 +5,6 @@ require 'bitflyer/cli'
 begin
   Bitflyer::Cli::Runner.start
 rescue CancelAllCommand::Rejected, CancelOrderCommand::Failed, OpenOrdersCommand::LookupFailed,
-       Bitflyer::Cli::OrderRejected, HasHTTPClient::TickerError => e
+       StopByRangeCommand::LookupFailed, Bitflyer::Cli::OrderRejected, HasHTTPClient::TickerError => e
   abort e.message
 end
