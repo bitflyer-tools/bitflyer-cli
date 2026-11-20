@@ -34,7 +34,7 @@ module Bitflyer
         CancelOrderCommand.new.run(type, id, confirm_parent: options[:confirm_parent])
       end
 
-      desc 'counter_trade', 'clear all positions'
+      desc 'counter_trade', 'offset nonzero net exposure with a market order'
       def counter_trade
         CounterTradeCommand.new.run
       end

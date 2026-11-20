@@ -65,6 +65,17 @@ describe CounterTradeCommand do
     end
   end
 
+  context 'with a flat net position' do
+    let(:positions) do
+      [position(side: 'BUY', price: 1_000_000, size: 0.1), position(side: 'SELL', price: 1_100_000, size: 0.1)]
+    end
+
+    it 'reports the flat net position without submitting an order' do
+      expect { described_class.new.run }.to output("Your net position is already flat.\n").to_stdout
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+  end
+
   context 'with a long position' do
     let(:positions) do
       [position(side: 'BUY', price: 1_000_000, size: 0.1), position(side: 'BUY', price: 1_000_000, size: 0.2)]
@@ -77,12 +88,15 @@ describe CounterTradeCommand do
     end
   end
 
-  context 'with a short position' do
-    let(:positions) { [position(side: 'SELL', price: '1e6', size: '0.5')] }
+  context 'with a net short position' do
+    let(:positions) do
+      [position(side: 'SELL', price: '1e6', size: '0.6'), position(side: 'BUY', price: 1_100_000, size: 0.1)]
+    end
 
-    it 'buys the whole position at market' do
+    it 'buys the net position at market' do
       expect { described_class.new.run }.to output("Clear position BUY / 0.5\n").to_stdout
-      expect(private_client).to have_received(:send_child_order).with(hash_including(side: 'BUY', size: 0.5))
+      expect(private_client).to have_received(:send_child_order)
+        .with(product_code: 'FX_BTC_JPY', child_order_type: 'MARKET', side: 'BUY', size: 0.5)
     end
   end
 

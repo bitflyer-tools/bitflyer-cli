@@ -144,7 +144,5 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     price if received_at && monotonic_time - received_at < PRICE_FRESHNESS_LIMIT
   end
 
-  def monotonic_time
-    Process.clock_gettime(Process::CLOCK_MONOTONIC)
-  end
+  def monotonic_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 end

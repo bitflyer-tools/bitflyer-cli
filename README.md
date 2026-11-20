@@ -43,7 +43,7 @@ Press `Ctrl+C` to exit the live display.
 Commands:
   bitflyer cancel_all                                          # cancel all of orders
   bitflyer cancel_order TYPE ID [--confirm-parent]             # request cancellation of one order
-  bitflyer counter_trade                                       # clear all positions
+  bitflyer counter_trade                                       # offset nonzero net exposure with a market order
   bitflyer executions                                          # show recent account executions
   bitflyer help [COMMAND]                                      # Describe available commands or one specific command
   bitflyer ifdoco_by_range --amount=0.01 --type=buy --range=10000 --percentage=60  # create IFDOCO order by range based on current price
