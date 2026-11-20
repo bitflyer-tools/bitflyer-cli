@@ -6,7 +6,7 @@ require 'bitflyer/cli/has_realtime_client'
 require 'bitflyer/cli/model/position'
 require 'bitflyer/cli/persistent_http_client'
 
-class SummaryCommand # rubocop:disable Metrics/ClassLength
+class SummaryCommand
   include HasHTTPClient
   include HasRealtimeClient
 
