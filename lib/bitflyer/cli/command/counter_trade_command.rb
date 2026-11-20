@@ -11,8 +11,11 @@ class CounterTradeCommand
     return puts "You don't have any position now." if position.empty?
     return puts 'Your net position is already flat.' if position.flat?
 
+    size = position_order_size(position)
+    return unless size
+
     type = position.size.positive? ? 'SELL' : 'BUY'
-    submit_order(type, position.size.abs.to_f)
+    submit_order(type, size)
   end
 
   private

@@ -10,7 +10,7 @@ describe 'Loading the counter trade command on its own' do
 
       client = Object.new
       def client.positions
-        [{ 'side' => 'BUY', 'size' => 0.1 }]
+        [{ 'side' => 'BUY', 'price' => 1_000_000, 'size' => 0.1 }]
       end
 
       def client.send_child_order(product_code:, child_order_type:, side:, size:)
@@ -34,12 +34,17 @@ describe 'Loading the counter trade command on its own' do
 end
 
 describe CounterTradeCommand do
+  subject(:run_command) { described_class.new.run }
+
   let!(:private_client) { stub_private_client }
   let(:accepted) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' } }
 
   before do
     stub_responses(private_client, positions: positions, send_child_order: accepted)
   end
+
+  include_examples 'rejects malformed position snapshots', :send_child_order
+  include_examples 'rejects unrepresentable order sizes', :send_child_order
 
   context 'when the position lookup is rejected' do
     let(:positions) { { 'status' => -200, 'error_message' => 'Invalid API key' } }
@@ -85,7 +90,7 @@ describe CounterTradeCommand do
 
   context 'with a net short position' do
     let(:positions) do
-      [position(side: 'SELL', price: 1_000_000, size: 0.6), position(side: 'BUY', price: 1_100_000, size: 0.1)]
+      [position(side: 'SELL', price: '1e6', size: '0.6'), position(side: 'BUY', price: 1_100_000, size: 0.1)]
     end
 
     it 'buys the net position at market' do
