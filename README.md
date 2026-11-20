@@ -58,6 +58,9 @@ and HTTP 5xx responses leave acceptance unverified. Rejected and unverified
 requests exit unsuccessfully. Run `bitflyer open_orders` again to check the
 order's status.
 
+For help with credentials, missing prices, and order status, see
+[Troubleshooting](docs/troubleshooting.md).
+
 ## Contributing
 
 Bug reports and pull requests are welcome on GitHub at https://github.com/unhappychoice/bitflyer-cli. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [Contributor Covenant](http://contributor-covenant.org) code of conduct.
