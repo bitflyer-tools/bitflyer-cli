@@ -15,6 +15,7 @@ class SummaryCommand
   PRICE_FRESHNESS_LIMIT = 30 # seconds
 
   def initialize
+    @execution = nil
     realtime_client.disconnected = ->(_error) { @execution = nil }
     realtime_client.executions_fx_btc_jpy = lambda { |message|
       price = Float(message.last&.[]('price'), exception: false)
@@ -58,7 +59,8 @@ class SummaryCommand
 
   def render
     puts "\n" * 3
-    previous_inputs = previous_frame = nil
+    previous_frame = nil
+    previous_inputs = nil
 
     loop do
       previous_inputs, previous_frame = redraw(previous_inputs, previous_frame)
@@ -93,7 +95,9 @@ class SummaryCommand
   end
 
   def mark_account_stale
-    @account_snapshot = [*@account_snapshot.first(2), true].freeze if @account_snapshot
+    return unless @account_snapshot
+
+    @account_snapshot = [*@account_snapshot.first(2), true].freeze
   end
 
   def frame(account_snapshot, price)
