@@ -3,7 +3,7 @@
 ## Development setup
 
 Fork `bitflyer-tools/bitflyer-cli` on GitHub and clone your fork. From the
-repository root, use Ruby 3.4.4, the version in `.ruby-version`, and install
+repository root, use the Ruby version in `.ruby-version` and install
 the Bundler version recorded in `Gemfile.lock`.
 
 ```sh
@@ -18,11 +18,12 @@ Run the same commands as CI from the repository root.
 ```sh
 bundle exec rspec
 bundle exec rubocop
+gem build bitflyer-cli.gemspec
 ```
 
 The specs use client doubles and run without bitFlyer API credentials.
 
-CI runs RSpec on Ruby 3.1 and 3.2 with the default bundle. To run the
+CI runs RSpec on Ruby 3.3 with the default bundle. To run the
 coverage check used on Ruby 3.3 and 3.4, install Bundler 4.1.0 and use
 the coverage Gemfile:
 

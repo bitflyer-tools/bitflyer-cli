@@ -10,7 +10,9 @@ class CounterTradeCommand
     return unless position
     return puts "You don't have any position now." if position.empty?
 
-    size = position.size.abs.to_f
+    size = position_order_size(position)
+    return unless size
+
     type = position.size.positive? ? 'SELL' : 'BUY'
     response = http_private_client.send_child_order(
       product_code: 'FX_BTC_JPY',
