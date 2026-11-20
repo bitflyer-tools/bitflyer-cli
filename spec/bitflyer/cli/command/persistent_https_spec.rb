@@ -48,7 +48,9 @@ describe 'Persistent exchange HTTPS' do
 
   it 'uses one TLS connection for startup and multiple summary refreshes and closes it on interrupt' do
     start_server { |path| [path == positions_path ? [] : { collateral: 50_000 }, false] }
-    allow(stub_realtime_client).to receive(:disconnected=)
+    feed = stub_realtime_client
+    allow(feed).to receive(:disconnected=)
+    allow(feed).to receive(:executions_fx_btc_jpy=)
     command = SummaryCommand.new
     refreshed = Queue.new
     elapsed = 0
