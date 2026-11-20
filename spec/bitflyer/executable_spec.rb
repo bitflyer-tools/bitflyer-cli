@@ -40,6 +40,23 @@ describe 'bitflyer executable' do
     expect { run_cli('open_orders') }.to output("Child orders\nNone.\nParent strategies\nNone.\n").to_stdout
   end
 
+  it 'routes executions with a TWAP acceptance ID through the CLI' do
+    stub_responses(private_client, executions: [])
+
+    expect { run_cli('executions', '--child-order-acceptance-id', 'JRF-accepted') }
+      .to output("No executions found.\n").to_stdout
+    expect(private_client).to have_received(:executions)
+      .with(product_code: 'FX_BTC_JPY', count: 100, child_order_acceptance_id: 'JRF-accepted').once
+  end
+
+  it 'prints an execution lookup rejection to stderr and exits unsuccessfully' do
+    stub_responses(private_client, executions: { 'status' => -1, 'error_message' => 'Permission denied' })
+
+    expect do
+      expect { run_cli('executions') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not list executions. Permission denied\n").to_stderr
+  end
+
   def stub_cancellation_response(code, body)
     response = instance_double(Net::HTTPResponse, code: code, body: body)
     transport = instance_double(Net::HTTP, request: response)
