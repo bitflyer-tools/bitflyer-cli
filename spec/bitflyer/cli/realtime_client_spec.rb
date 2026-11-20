@@ -37,7 +37,7 @@ describe Bitflyer::Cli::RealtimeClient do
         end
 
         with_tls_server(connections: 2, upgrades: upgrades, keep_open: true) do |requests, ready|
-          stub_responses(stub_private_client, positions: [], collateral: { 'collateral' => 0 })
+          stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
           command = SummaryCommand.new
           transport = command.realtime_client.websocket_client
           on_disconnect = transport.disconnected
