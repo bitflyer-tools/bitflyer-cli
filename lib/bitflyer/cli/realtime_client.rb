@@ -58,7 +58,7 @@ module Bitflyer
 
             @websocket_client&.shutdown
             connect
-          rescue SocketError => e
+          rescue SocketError, SystemCallError => e
             debug_log e
           ensure
             @lifecycle.unlock
@@ -73,6 +73,7 @@ module Bitflyer
       end
 
       class TLSConnection
+        TCP_CONNECT_TIMEOUT = 10
         TLS_HANDSHAKE_TIMEOUT = 10
         UPGRADE_TIMEOUT = 10
 
@@ -132,9 +133,9 @@ module Bitflyer
         end
 
         def connect_tls(endpoint)
+          tcp_socket = connect_tcp(endpoint)
           context = OpenSSL::SSL::SSLContext.new
           context.set_params(verify_mode: OpenSSL::SSL::VERIFY_PEER, verify_hostname: true)
-          tcp_socket = TCPSocket.new(endpoint.host, endpoint.port)
           socket = OpenSSL::SSL::SSLSocket.new(tcp_socket, context)
           socket.sync_close = true
           socket.hostname = endpoint.host
@@ -142,6 +143,12 @@ module Bitflyer
         rescue StandardError
           tcp_socket&.close
           raise
+        end
+
+        def connect_tcp(endpoint)
+          Timeout.timeout(TCP_CONNECT_TIMEOUT, SocketError, 'TCP connection timed out') do
+            TCPSocket.new(endpoint.host, endpoint.port)
+          end
         end
 
         def read_messages(transport)
