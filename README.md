@@ -44,6 +44,7 @@ Commands:
   bitflyer cancel_all                                          # cancel all of orders
   bitflyer cancel_order TYPE ID [--confirm-parent]             # request cancellation of one order
   bitflyer counter_trade                                       # offset nonzero net exposure with a market order
+  bitflyer executions                                          # show recent account executions
   bitflyer help [COMMAND]                                      # Describe available commands or one specific command
   bitflyer ifdoco_by_range --amount=0.01 --type=buy --range=10000 --percentage=60  # create IFDOCO order by range based on current price
   bitflyer open_orders                                         # show active child orders and parent strategies
@@ -78,8 +79,38 @@ and HTTP 5xx responses leave acceptance unverified. Rejected and unverified
 requests exit unsuccessfully. Run `bitflyer open_orders` again to check the
 order's status.
 
+### Review account executions
+
+Run `bitflyer executions` with an API key that has permission to list executions.
+The terminal table shows up to 100 recent fills for `FX_BTC_JPY`, with one row
+per fill. Each row includes the execution time, side, price, size, commission,
+child order ID, and acceptance ID.
+
+Copy the Order ID from the Child orders section of `bitflyer open_orders`, or
+copy the `child_order_acceptance_id` printed for an accepted TWAP slice. Pass
+one of the IDs to limit the page to fills for that order, even after it leaves
+the active order list.
+
+```sh
+bitflyer executions
+bitflyer executions --child-order-id JOR20150707-084555-022523
+bitflyer executions --child-order-acceptance-id JRF20150707-050237-639234
+```
+
+An empty page prints `No executions found.` A failed lookup prints an error
+to stderr and exits unsuccessfully.
+
+## Troubleshooting
+
 For help with credentials, missing prices, and order status, see
 [Troubleshooting](docs/troubleshooting.md).
+
+### TWAP submission results
+
+`bitflyer order_by_twap` reports the number of slices accepted, rejected,
+unverified, and unattempted. If a transport error leaves a slice's acceptance
+unverified, the command stops the schedule without retrying that slice and
+exits with status 1.
 
 ## Contributing
 

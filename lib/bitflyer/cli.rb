@@ -4,6 +4,7 @@ require 'thor'
 require 'bitflyer/cli/command/cancel_all_command'
 require 'bitflyer/cli/command/cancel_order_command'
 require 'bitflyer/cli/command/counter_trade_command'
+require 'bitflyer/cli/command/executions_command'
 require 'bitflyer/cli/command/ifdoco_by_range_command'
 require 'bitflyer/cli/command/open_orders_command'
 require 'bitflyer/cli/command/order_by_best_command'
@@ -38,6 +39,14 @@ module Bitflyer
         CounterTradeCommand.new.run
       end
 
+      desc 'executions', 'show recent account executions for FX_BTC_JPY'
+      method_option :child_order_id, type: :string, desc: 'Child order ID from open_orders'
+      method_option :child_order_acceptance_id, type: :string, desc: 'Child order acceptance ID from TWAP output'
+      def executions
+        ExecutionsCommand.new.run(child_order_id: options[:child_order_id],
+                                  child_order_acceptance_id: options[:child_order_acceptance_id])
+      end
+
       desc 'open_orders', 'show active child orders and parent strategies'
       def open_orders
         OpenOrdersCommand.new.run
@@ -57,7 +66,7 @@ module Bitflyer
       method_option :interval, aliases: 'i', type: :numeric, banner: 'second', required: true
       def order_by_twap
         counts = OrderByTWAPCommand.new.run(options)
-        exit 1 if counts[:rejected].positive?
+        exit 1 if counts[:rejected].positive? || counts[:unverified].positive?
       end
 
       desc 'stop_by_range', 'create stop order by range based on current position'
