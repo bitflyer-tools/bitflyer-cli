@@ -22,12 +22,12 @@ describe Bitflyer::Cli::RealtimeClient do
     context "when a reconnect raises #{error_class}" do
       let(:connection_error) { error_class.new }
 
-      it 'keeps a pending upgrade and recovers after a failed reconnect' do
+      it 'keeps a pending upgrade and resumes the summary feed after a failed reconnect' do
         ticks = Queue.new
         steps = Queue.new
         upgrades = Queue.new
-        disconnected = Queue.new
-        executions = Queue.new
+        prices_at_disconnect = Queue.new
+        client = nil
         monitor = nil
         allow_any_instance_of(transport_class).to receive(:start_monitoring).and_wrap_original do |start|
           monitor = start.call
@@ -37,14 +37,23 @@ describe Bitflyer::Cli::RealtimeClient do
           steps.pop
         end
 
-        with_tls_server(connections: 2, upgrades: upgrades) do |requests, ready|
-          client = described_class.new
-          transport = client.websocket_client
-          transport.disconnected = ->(error) { disconnected << error }
-          client.executions_fx_btc_jpy = ->(batch) { executions << batch }
-          connection = transport.websocket_client
+        allow(described_class).to receive(:new).and_wrap_original do |start|
+          client = start.call
+        end
+        stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
+        command = SummaryCommand.new
 
-          Timeout.timeout(5) do
+        with_tls_server(connections: 2, upgrades: upgrades, keep_open_connections: 1) do |requests, ready|
+          allow(command).to receive(:render) do
+            transport = client.websocket_client
+            on_disconnect = transport.disconnected
+            transport.disconnected = lambda do |error|
+              price = command.send(:fresh_price)
+              on_disconnect.call(error)
+              prices_at_disconnect << price
+            end
+            connection = transport.websocket_client
+
             expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
             ticks.pop
             steps << true
@@ -54,7 +63,8 @@ describe Bitflyer::Cli::RealtimeClient do
 
             upgrades << true
             ready << true
-            disconnected.pop
+            expect(prices_at_disconnect.pop).to eq(1_010_000.0)
+            expect(command.send(:fresh_price)).to be_nil
             failure = connection_error
             allow(TCPSocket).to receive(:new).and_wrap_original do |connect, *args|
               if failure
@@ -77,12 +87,10 @@ describe Bitflyer::Cli::RealtimeClient do
 
             upgrades << true
             ready << true
-            2.times { expect(executions.pop).to eq([{ 'price' => 1_010_000 }]) }
-            disconnected.pop
+            sleep 0.01 until command.send(:fresh_price) == 1_010_000.0
           end
-        ensure
-          client&.shutdown
-          expect(monitor).not_to be_alive if monitor
+          expect { Timeout.timeout(5) { command.run } }.to output.to_stdout
+          expect(monitor).not_to be_alive
         end
       end
     end
@@ -153,7 +161,7 @@ describe Bitflyer::Cli::RealtimeClient do
     stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
     command = SummaryCommand.new
 
-    with_tls_server(connections: 2, keep_open: true) do |requests, ready|
+    with_tls_server(connections: 2, keep_open_connections: 2) do |requests, ready|
       expect(clients).to be_empty
       workers = 2.times.flat_map do |index|
         connection, monitor, reader = nil
@@ -212,14 +220,16 @@ describe Bitflyer::Cli::RealtimeClient do
     end
   end
 
-  def with_tls_server(issuer: root, issuer_key: root_key, connections: 1, upgrades: nil, keep_open: false)
+  def with_tls_server(issuer: root, issuer_key: root_key, connections: 1, upgrades: nil, keep_open_connections: 0)
     context = OpenSSL::SSL::SSLContext.new
     context.cert = certificate(hostname, server_key, issuer: issuer, issuer_key: issuer_key)
     context.key = server_key
     requests = Queue.new
     ready = Queue.new
     worker = Thread.new do
-      connections.times { serve_execution(context, requests, ready, upgrades, keep_open) }
+      connections.times do |index|
+        serve_execution(context, requests, ready, upgrades, index >= connections - keep_open_connections)
+      end
     end
     yield requests, ready
   ensure
