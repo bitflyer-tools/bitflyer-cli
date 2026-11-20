@@ -69,6 +69,34 @@ describe Bitflyer::Cli::Runner do
       .with(hash_including('amount' => 0.01, 'type' => 'sell', 'number_of_times' => 3, 'interval' => 10))
   end
 
+  {
+    'order_by_best' => [],
+    'order_by_twap' => %w[--number-of-times=2 --interval=10],
+    'ifdoco_by_range' => %w[--range=10000 --percentage=60]
+  }.each do |name, strategy_options|
+    %w[0 -0.01].each do |amount|
+      it "rejects an amount of #{amount} for #{name} before doing exchange or scheduling work" do
+        public_client = stub_public_client
+        private_client = stub_private_client
+        expect(public_client).not_to receive(:ticker)
+        expect(private_client).not_to receive(:send_child_order)
+        expect(private_client).not_to receive(:send_parent_order)
+
+        if name == 'order_by_twap'
+          twap = OrderByTWAPCommand.new
+          allow(OrderByTWAPCommand).to receive(:new).and_return(twap)
+          expect(twap).not_to receive(:monotonic_time)
+          expect(twap).not_to receive(:sleep)
+        end
+
+        expect do
+          expect { start(name, "--amount=#{amount}", '--type=buy', *strategy_options) }
+            .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output(/^Amount must be positive and finite\.$/).to_stderr
+      end
+    end
+  end
+
   describe 'order_by_twap submission results' do
     let!(:private_client) { stub_persistent_client }
     let(:acceptance) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' } }

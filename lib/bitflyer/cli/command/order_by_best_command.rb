@@ -2,12 +2,13 @@
 
 require 'thor'
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/order_amount'
 
 class OrderByBestCommand
   include HasHTTPClient
 
   def run(options) # rubocop:disable Metrics/MethodLength
-    amount = options.amount
+    amount = OrderAmount.validate!(options.amount)
     type = options.type
     side = normalize_side(type)
 
