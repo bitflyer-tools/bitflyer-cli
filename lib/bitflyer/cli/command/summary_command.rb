@@ -2,25 +2,18 @@
 
 require 'colorize'
 require 'bitflyer/cli/has_http_client'
-require 'bitflyer/cli/has_realtime_client'
+require 'bitflyer/cli/realtime_client'
 require 'bitflyer/cli/model/position'
 require 'bitflyer/cli/persistent_http_client'
 
 class SummaryCommand # rubocop:disable Metrics/ClassLength
   include HasHTTPClient
-  include HasRealtimeClient
 
   alias http_private_client persistent_http_client
 
   PRICE_FRESHNESS_LIMIT = 30 # seconds
 
   def initialize
-    realtime_client.disconnected = ->(_error) { @execution = nil }
-    realtime_client.executions_fx_btc_jpy = lambda { |message|
-      price = Float(message.last&.[]('price'), exception: false)
-      @execution = [price, monotonic_time] if price&.finite? && price.positive?
-    }
-
     update_balance
   ensure
     close_persistent_http_client unless @account_snapshot
@@ -32,24 +25,45 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     stdout = $stdout
     original_sync = stdout.sync
     stdout.sync = true
-    print "\e[?25l"
+    stdout.print "\e[?25l"
 
-    poller = nil
-    Thread.handle_interrupt(Interrupt => :never) { poller = Thread.new { poll_account } }
+    feed = poller = nil
+    Thread.handle_interrupt(Interrupt => :never) do
+      @execution = nil
+      feed = Bitflyer::Cli::RealtimeClient.new
+      subscribe_to_feed(feed)
+      poller = Thread.new { poll_account }
+    end
 
     render
   rescue Interrupt
     # exit
   ensure
-    restore_display(poller, stdout, original_sync)
+    Thread.handle_interrupt(Interrupt => :never) do
+      restore_display(feed, poller, stdout, original_sync) if @account_snapshot
+    end
   end
 
   private
 
-  def restore_display(poller, stdout, original_sync)
+  def subscribe_to_feed(feed)
+    feed.disconnected = ->(_error) { @execution = nil }
+    feed.executions_fx_btc_jpy = lambda { |message|
+      price = Float(message.last&.[]('price'), exception: false)
+      @execution = [price, monotonic_time] if price&.finite? && price.positive?
+    }
+  end
+
+  def restore_display(feed, poller, stdout, original_sync)
     poller&.kill&.join
+    feed&.shutdown
   ensure
+    close_http_and_restore_cursor(stdout, original_sync)
+  end
+
+  def close_http_and_restore_cursor(stdout, original_sync)
     close_persistent_http_client
+  ensure
     stdout&.print "\e[?25h"
     stdout.sync = original_sync if stdout
   end
@@ -94,19 +108,6 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
 
   def mark_account_stale
     @account_snapshot = [*@account_snapshot.first(2), true].freeze if @account_snapshot
-  end
-
-  def fetch_collateral
-    response = http_private_client.collateral
-    if response.is_a?(Hash)
-      status = response['status']
-      collateral = response['collateral']
-      rejected = status.is_a?(Numeric) && status.negative?
-      return collateral.to_i if !rejected && collateral.is_a?(Numeric) && collateral.finite?
-    end
-
-    warn "Failed to look up collateral: #{response.inspect}"
-    nil
   end
 
   def frame(account_snapshot, price)

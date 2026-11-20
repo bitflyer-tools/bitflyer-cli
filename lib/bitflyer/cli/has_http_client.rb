@@ -53,6 +53,19 @@ module HasHTTPClient
     nil
   end
 
+  def fetch_collateral
+    response = http_private_client.collateral
+    if response.is_a?(Hash)
+      status = response['status']
+      collateral = response['collateral']
+      rejected = status.is_a?(Numeric) && status.negative?
+      return collateral.to_i if !rejected && collateral.is_a?(Numeric) && collateral.finite?
+    end
+
+    warn "Failed to look up collateral: #{response.inspect}"
+    nil
+  end
+
   def fetch_position
     positions = http_private_client.positions
     return Position.new(positions) if positions.is_a?(Array)
