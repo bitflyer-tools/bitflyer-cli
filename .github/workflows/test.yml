@@ -13,7 +13,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.4.4'
+          ruby-version: .ruby-version
       - name: Install dependencies
         run: bundle install --jobs 4
       - name: Run lint
@@ -28,16 +28,13 @@ jobs:
     strategy:
       matrix:
         include:
-          - ruby: '3.4.4'
+          - ruby: .ruby-version
             gemfile: gemfiles/with_coverage/Gemfile
             coverage: 'true'
-          - ruby: '3.3.13'
+          - ruby: '3.3.14'
             gemfile: gemfiles/with_coverage/Gemfile
             coverage: 'true'
-          - ruby: '3.2.11'
-            gemfile: Gemfile
-            coverage: 'false'
-          - ruby: '3.1.7'
+          - ruby: '3.3.14'
             gemfile: Gemfile
             coverage: 'false'
     env:
@@ -55,3 +52,8 @@ jobs:
         env:
           COVERAGE: ${{ matrix.coverage }}
         run: bundle exec rspec
+      - name: Report coverage
+        if: matrix.coverage == 'true'
+        run: |
+          report=$(bundle exec simplecov status --no-color)
+          printf '### Test coverage\n\n```text\n%s\n```\n' "$report" >> "$GITHUB_STEP_SUMMARY"

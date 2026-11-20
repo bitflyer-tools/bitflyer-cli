@@ -4,18 +4,22 @@ require 'thor'
 require 'net/http'
 require 'openssl'
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/persistent_http_client'
 
 class OrderByTWAPCommand
   include HasHTTPClient
+
+  alias http_private_client persistent_http_client
 
   def run(options)
     interval = options.interval
     raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
 
-    number = whole_order_count(options.number_of_times)
-    counts = submit_slices(options, number, interval)
+    counts = submit_slices(options, whole_order_count(options.number_of_times), interval)
     puts "TWAP exchange acceptance (slices): #{counts.map { |status, count| "#{count} #{status}" }.join(', ')}."
     counts
+  ensure
+    close_persistent_http_client
   end
 
   private

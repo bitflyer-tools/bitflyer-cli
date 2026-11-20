@@ -2,7 +2,7 @@ require 'spec_helper'
 require 'timeout'
 
 describe SummaryCommand do
-  let!(:private_client) { stub_private_client }
+  let!(:private_client) { stub_persistent_client }
   let!(:realtime_client) { stub_realtime_client }
   let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.1)] }
   let(:executions_callback) { [] }
@@ -44,18 +44,21 @@ describe SummaryCommand do
     end
   end
 
-  it 'reports a rejected refresh and keeps the last successful account data' do
+  it 'reports a rejected refresh and shows saved account data as stale until a successful refresh' do
     command = described_class.new
     stub_responses(private_client, positions: { 'status' => -200 })
     allow(Thread).to receive(:new).and_yield
     expect(command).to receive(:sleep).with(5).ordered
     expect(command).to receive(:sleep).with(5).ordered.and_raise(Interrupt)
-    expect(Position).not_to receive(:new)
-
     expect { capture_stdout { command.run } }.to output(/Failed to look up positions:.*-200/).to_stderr
     expect(private_client).to have_received(:collateral).once
     executions_callback.first.call([{ 'price' => 1_000_000 }])
-    expect(capture_stdout { run_once(command) }).to include('Position: 1,000,000 * 0.1', 'Balance:  50,000')
+    refresh = -> { refresh_account(command, price: 1_000_000, size: 0.2, collateral: 60_000) }
+    stale, recovered = capture_stdout { run_iterations(command, refresh) }.split("\e[4F\e[0J").drop(1)
+
+    expect(stale).to include('Current:  1,000,000', 'Position: 1,000,000 * 0.1', 'Balance:  50,000', '[stale]')
+    expect(recovered).to include('Position: 1,000,000 * 0.2', 'Balance:  60,000')
+    expect(recovered).not_to include('[stale]')
   end
 
   it 'loads the account once at startup and waits five seconds between refreshes' do
@@ -185,6 +188,44 @@ describe SummaryCommand do
     output = capture_stdout { run_once(described_class.new) }
 
     expect(output).to include('Current:  Stale', 'Spread:   N/A', 'Balance:  N/A (N/A)')
+  end
+
+  {
+    'missing' => {},
+    'empty' => { 'price' => '' },
+    'nonnumeric' => { 'price' => 'invalid' },
+    'partially numeric' => { 'price' => '1010000invalid' },
+    'zero' => { 'price' => 0 },
+    'negative' => { 'price' => -1 },
+    'NaN' => { 'price' => Float::NAN },
+    'infinite' => { 'price' => Float::INFINITY },
+    'overflowing' => { 'price' => '1e999' }
+  }.each do |description, invalid_execution|
+    it "ignores a #{description} execution price without renewing the last valid price" do
+      command = described_class.new
+      receive_execution = executions_callback.first
+      allow(command).to receive(:monotonic_time).and_return(100)
+
+      receive_execution.call([invalid_execution])
+      stale = capture_stdout { run_once(command) }
+      expect(stale).to include('Current:  Stale', 'Spread:   N/A', 'Balance:  N/A (N/A)')
+
+      receive_execution.call([{ 'price' => 1_010_000 }])
+      marked = capture_stdout { run_once(command) }
+      expect(marked).to include('Current:  1,010,000', 'Balance:  51,000')
+
+      allow(command).to receive(:monotonic_time).and_return(129)
+      receive_execution.call([invalid_execution])
+      expect(capture_stdout { run_once(command) }).to eq(marked)
+
+      allow(command).to receive(:monotonic_time).and_return(130)
+      expect(capture_stdout { run_once(command) }).to eq(stale)
+      receive_execution.call([invalid_execution])
+      expect(capture_stdout { run_once(command) }).to eq(stale)
+
+      receive_execution.call([{ 'price' => '1020000' }])
+      expect(capture_stdout { run_once(command) }).to include('Current:  1,020,000', 'Balance:  52,000')
+    end
   end
 
   shared_examples 'an invalidated execution price' do
