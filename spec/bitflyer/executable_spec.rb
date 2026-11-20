@@ -21,7 +21,8 @@ describe 'bitflyer executable' do
   end
 
   it 'prints a cancel-all rejection to stderr and exits unsuccessfully' do
-    stub_responses(private_client, cancel_all_child_orders: { 'status' => -200, 'error_message' => 'rejected' })
+    stub_credentials
+    stub_cancellation_response('400', JSON.generate(status: -200, error_message: 'rejected'))
 
     expect do
       expect { run_cli('cancel_all') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -29,9 +30,34 @@ describe 'bitflyer executable' do
   end
 
   it 'completes normally when the cancellation is accepted' do
-    stub_responses(private_client, cancel_all_child_orders: '')
+    stub_credentials
+    stub_cancellation_response('200', '')
 
     expect { run_cli('cancel_all') }.to output('').to_stderr
+  end
+
+  ['<html>Bad Gateway</html>', ''].each do |body|
+    it "reports an HTTP 502 with #{body.empty? ? 'an empty body' : 'an HTML body'} as unverified" do
+      stub_credentials
+      stub_cancellation_response('502', body)
+
+      expect do
+        expect { run_cli('cancel_all') }
+          .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not verify cancel-all acceptance from bitFlyer (HTTP 502).\n").to_stderr
+    end
+  end
+
+  it 'reports a cancel-all timeout as unverified without retrying' do
+    stub_credentials
+    transport = stub_cancellation_response('200', nil)
+    allow(transport).to receive(:request).and_raise(Net::ReadTimeout)
+
+    expect do
+      expect { run_cli('cancel_all') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not verify cancel-all acceptance from bitFlyer.\n").to_stderr
+    expect(transport).to have_received(:request).once
   end
 
   it 'routes open_orders through the CLI' do
