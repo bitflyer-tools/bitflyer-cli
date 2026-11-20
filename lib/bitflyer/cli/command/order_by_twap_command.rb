@@ -16,7 +16,9 @@ class OrderByTWAPCommand
     amount = OrderAmount.validate!(options.amount)
     validate_interval!(options.interval)
 
-    counts = submit_slices(options.type, amount, whole_order_count(options.number_of_times), options.interval)
+    number = whole_order_count(options.number_of_times)
+    side = normalize_side(options.type)
+    counts = submit_slices(side, amount, number, options.interval)
     puts "TWAP exchange acceptance (slices): #{counts.map { |status, count| "#{count} #{status}" }.join(', ')}."
     counts
   ensure
@@ -25,10 +27,17 @@ class OrderByTWAPCommand
 
   private
 
-  def submit_slices(type, amount, number, interval)
+  def normalize_side(type)
+    side = type.to_s.upcase
+    raise Thor::Error, 'Order type must be buy or sell' unless %w[BUY SELL].include?(side)
+
+    side
+  end
+
+  def submit_slices(side, amount, number, interval)
     counts = { accepted: 0, rejected: 0, unverified: 0, unattempted: number }
     submit_on_schedule(number, interval) do
-      result = order(type, amount)
+      result = order(side, amount)
       counts[result] += 1
       counts[:unattempted] -= 1
       break if result == :unverified
@@ -70,8 +79,8 @@ class OrderByTWAPCommand
     deadline
   end
 
-  def order(type, amount)
-    response = submit_order(type, amount)
+  def order(side, amount)
+    response = submit_order(side, amount)
   rescue Timeout::Error, SocketError, SystemCallError, IOError,
          OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError
     :unverified
@@ -79,11 +88,11 @@ class OrderByTWAPCommand
     report_order(response)
   end
 
-  def submit_order(type, amount)
+  def submit_order(side, amount)
     http_private_client.send_child_order(
       product_code: 'FX_BTC_JPY',
       child_order_type: 'MARKET',
-      side: type.upcase,
+      side: side,
       size: amount
     )
   end
