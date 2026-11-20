@@ -2,16 +2,17 @@
 
 require 'thor'
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/order_amount'
 
 class IFDOCOByRangeCommand
   include HasHTTPClient
 
   def run(options) # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     side = options.type.upcase
-    size = options.amount
+    size = OrderAmount.validate!(options.amount)
     ratio = options.percentage.to_f
     range = options.range.to_f
-    validate_inputs!(side: side, size: size, range: range, ratio: ratio)
+    validate_inputs!(side: side, range: range, ratio: ratio)
 
     current_price = fetch_ticker_price('ltp')
     profit_price, loss_price = exit_prices(side: side, current_price: current_price, range: range, ratio: ratio)
@@ -27,17 +28,12 @@ class IFDOCOByRangeCommand
 
   private
 
-  def validate_inputs!(side:, size:, range:, ratio:)
+  def validate_inputs!(side:, range:, ratio:)
     raise Thor::Error, 'Order type must be buy or sell.' unless %w[BUY SELL].include?(side)
-    raise Thor::Error, 'Amount must be positive and finite.' unless positive_finite?(size)
-    raise Thor::Error, 'Range must be positive and finite.' unless positive_finite?(range)
+    raise Thor::Error, 'Range must be positive and finite.' unless range.positive? && range.finite?
     return if ratio.positive? && ratio < 100
 
     raise Thor::Error, 'Percentage must be greater than 0 and less than 100.'
-  end
-
-  def positive_finite?(value)
-    value.positive? && value.finite?
   end
 
   def exit_prices(side:, current_price:, range:, ratio:)
