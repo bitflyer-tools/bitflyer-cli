@@ -81,6 +81,16 @@ describe Bitflyer::Cli::RealtimeClient do
 
   after { server.close }
 
+  it 'times out a stalled TCP dial before starting TLS' do
+    stub_const('Bitflyer::Cli::RealtimeClient::TLSConnection::TCP_CONNECT_TIMEOUT', 0.05)
+    expect(TCPSocket).to receive(:new).with('localhost', server.addr[1]) { sleep }
+    expect(OpenSSL::SSL::SSLSocket).not_to receive(:new)
+
+    Timeout.timeout(1) do
+      expect { SummaryCommand.new }.to raise_error(SocketError, 'TCP connection timed out')
+    end
+  end
+
   it 'closes the TCP connection when the peer stalls the TLS handshake' do
     stub_const('Bitflyer::Cli::RealtimeClient::TLSConnection::TLS_HANDSHAKE_TIMEOUT', 0.25)
     listener = server
