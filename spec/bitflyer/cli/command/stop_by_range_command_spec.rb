@@ -133,8 +133,8 @@ describe StopByRangeCommand do
     context 'when the stop order is rejected' do
       let(:response) { { 'status' => -200, 'error_message' => 'Order rejected' } }
 
-      it 'prints the API error response' do
-        expect { run }.to output("An error has occurred#{response}\n").to_stdout
+      it 'raises with the exchange rejection' do
+        expect { run }.to raise_error(Bitflyer::Cli::OrderRejected, 'Order rejected')
       end
     end
   end

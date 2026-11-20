@@ -3,6 +3,7 @@
 require 'thor'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/order_amount'
+require 'bitflyer/cli/order_rejected'
 
 class OrderByBestCommand
   include HasHTTPClient
@@ -22,11 +23,8 @@ class OrderByBestCommand
       size: amount
     )
 
-    if response['child_order_acceptance_id'].nil?
-      puts "An error has occurred#{response}"
-    else
-      puts "An order is created #{type} / #{price} / #{amount}"
-    end
+    Bitflyer::Cli::OrderRejected.check!(response, 'child_order_acceptance_id')
+    puts "An order is created #{type} / #{price} / #{amount}"
   end
 
   private

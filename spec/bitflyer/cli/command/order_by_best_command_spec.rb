@@ -77,8 +77,8 @@ describe OrderByBestCommand do
   context 'when the order is rejected' do
     let(:response) { { 'status' => -200 } }
 
-    it 'prints the error response' do
-      expect { run('buy') }.to output(/An error has occurred/).to_stdout
+    it 'raises with the exchange rejection' do
+      expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected, /Order rejected:.*-200/)
     end
   end
 end

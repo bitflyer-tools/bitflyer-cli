@@ -50,6 +50,53 @@ describe SummaryCommand do
     end
   end
 
+  context 'with an invalid collateral response' do
+    {
+      'a rejected response' => [{ 'status' => -1, 'error_message' => 'Collateral unavailable' }, /-1.*Collateral unavailable/],
+      'a rejected response with collateral' => [{ 'status' => -1, 'collateral' => 60_000 }, /-1/],
+      'a missing value' => [{}, /\{\}/],
+      'a null value' => [{ 'collateral' => nil }, /nil/]
+    }.each do |description, (response, details)|
+      context "with #{description}" do
+        let(:error) { /Failed to look up collateral:.*#{details}/ }
+
+        it 'reports the startup failure and skips the feed and balance rendering' do
+          stub_responses(private_client, collateral: response)
+          expect(Thread).not_to receive(:new)
+          expect(Bitflyer::Cli::RealtimeClient).not_to receive(:new)
+
+          expect do
+            command = described_class.new
+            expect(capture_stdout { command.run }).not_to include('Balance:')
+          end.to output(error).to_stderr
+          expect(private_client).to have_received(:close).once
+        end
+
+        it 'reports the refresh failure and marks both previous account figures as stale' do
+          command = described_class.new
+          opening_executions << [{ 'price' => 2_000_000 }]
+          stub_responses(
+            private_client,
+            positions: [position(side: 'BUY', price: 2_000_000, size: 0.2)],
+            collateral: response
+          )
+
+          expect { command.send(:update_balance) }.to output(error).to_stderr
+          output = capture_stdout { run_once(command) }
+          expect(output).to include('Position: 1,000,000 * 0.1', 'Balance:  150,000', '[stale]')
+        end
+      end
+    end
+  end
+
+  it 'renders a balance of zero when the collateral lookup succeeds with zero' do
+    stub_responses(private_client, collateral: { 'collateral' => 0 })
+    command = described_class.new
+    opening_executions << [{ 'price' => 1_000_000 }]
+
+    expect(capture_stdout { run_once(command) }).to match(/Balance:  0 +\(/)
+  end
+
   it 'reports a rejected refresh and shows saved account data as stale until a successful refresh' do
     command = described_class.new
     stub_responses(private_client, positions: { 'status' => -200 })

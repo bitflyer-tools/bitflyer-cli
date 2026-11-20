@@ -3,6 +3,7 @@
 require 'thor'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/order_amount'
+require 'bitflyer/cli/order_rejected'
 
 class IFDOCOByRangeCommand
   include HasHTTPClient
@@ -19,11 +20,8 @@ class IFDOCOByRangeCommand
     request = request(side: side, size: size, profit_price: profit_price, loss_price: loss_price)
     response = http_private_client.send_parent_order(**request)
 
-    if response['parent_order_acceptance_id'].nil?
-      puts "An error has occurred#{response}"
-    else
-      print_confirmation(request.fetch(:parameters))
-    end
+    Bitflyer::Cli::OrderRejected.check!(response, 'parent_order_acceptance_id')
+    print_confirmation(request.fetch(:parameters))
   end
 
   private
