@@ -33,11 +33,11 @@ describe 'Persistent exchange HTTPS' do
     expect(@server.requests.map(&:first)).to eq([1, 2, 2])
   end
 
-  it 'propagates a lost order response without replaying that slice' do
+  it 'reports partial results after a lost order response without replaying that slice' do
     start_server { |_path, number| [number == 2 ? nil : acceptance, false] }
     command = OrderByTWAPCommand.new
 
-    expect { run_twap(command, 3) }.to raise_error(EOFError).and output(/#{acceptance.values.first}/).to_stdout
+    expect { run_twap(command, 3) }.to output(/1 accepted, 0 rejected, 1 unverified, 1 unattempted\./).to_stdout
     expect(closed_connection).to eq(1)
     expect(@server.requests.map(&:first)).to eq([1, 1])
 

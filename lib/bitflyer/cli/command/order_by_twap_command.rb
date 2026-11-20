@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require 'thor'
+require 'net/http'
+require 'openssl'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/order_amount'
 require 'bitflyer/cli/persistent_http_client'
@@ -14,17 +16,25 @@ class OrderByTWAPCommand
     amount = OrderAmount.validate!(options.amount)
     validate_interval!(options.interval)
 
-    counts = { accepted: 0, rejected: 0 }
-    submit_on_schedule(whole_order_count(options.number_of_times), options.interval) do
-      counts[order(options.type, amount)] += 1
-    end
-    puts "TWAP exchange acceptance (slices): #{counts[:accepted]} accepted, #{counts[:rejected]} rejected."
+    counts = submit_slices(options.type, amount, whole_order_count(options.number_of_times), options.interval)
+    puts "TWAP exchange acceptance (slices): #{counts.map { |status, count| "#{count} #{status}" }.join(', ')}."
     counts
   ensure
     close_persistent_http_client
   end
 
   private
+
+  def submit_slices(type, amount, number, interval)
+    counts = { accepted: 0, rejected: 0, unverified: 0, unattempted: number }
+    submit_on_schedule(number, interval) do
+      result = order(type, amount)
+      counts[result] += 1
+      counts[:unattempted] -= 1
+      break if result == :unverified
+    end
+    counts
+  end
 
   def validate_interval!(interval)
     raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
@@ -60,14 +70,25 @@ class OrderByTWAPCommand
     deadline
   end
 
-  def order(type, amount) # rubocop:disable Metrics/MethodLength
-    response = http_private_client.send_child_order(
+  def order(type, amount)
+    response = submit_order(type, amount)
+  rescue Timeout::Error, SocketError, SystemCallError, IOError,
+         OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError
+    :unverified
+  else
+    report_order(response)
+  end
+
+  def submit_order(type, amount)
+    http_private_client.send_child_order(
       product_code: 'FX_BTC_JPY',
       child_order_type: 'MARKET',
       side: type.upcase,
       size: amount
     )
+  end
 
+  def report_order(response)
     if response['child_order_acceptance_id'].nil?
       puts "An error has occurred\n#{response}"
       :rejected

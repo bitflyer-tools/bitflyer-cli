@@ -105,6 +105,13 @@ to stderr and exits unsuccessfully.
 For help with credentials, missing prices, and order status, see
 [Troubleshooting](docs/troubleshooting.md).
 
+### TWAP submission results
+
+`bitflyer order_by_twap` reports the number of slices accepted, rejected,
+unverified, and unattempted. If a transport error leaves a slice's acceptance
+unverified, the command stops the schedule without retrying that slice and
+exits with status 1.
+
 ## Contributing
 
 Bug reports and pull requests are welcome on GitHub at https://github.com/unhappychoice/bitflyer-cli. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [Contributor Covenant](http://contributor-covenant.org) code of conduct.
