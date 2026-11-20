@@ -2,18 +2,20 @@
 
 require 'thor'
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/order_amount'
 
 class OrderByTWAPCommand
   include HasHTTPClient
 
   def run(options)
+    amount = OrderAmount.validate!(options.amount)
     interval = options.interval
     raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
 
     number = whole_order_count(options.number_of_times)
     counts = { accepted: 0, rejected: 0 }
     submit_on_schedule(number, interval) do
-      counts[order(options.type, options.amount)] += 1
+      counts[order(options.type, amount)] += 1
     end
     puts "TWAP exchange acceptance (slices): #{counts[:accepted]} accepted, #{counts[:rejected]} rejected."
     counts
