@@ -19,6 +19,14 @@ module HasHTTPClient
 
   private
 
+  def persistent_http_client
+    @persistent_http_client ||= Bitflyer::Cli::PersistentHTTPClient.new(api_key, api_secret)
+  end
+
+  def close_persistent_http_client
+    @persistent_http_client&.close
+  end
+
   def fetch_ticker_price(field)
     price = fetch_ticker[field]
     return price if (price.is_a?(Integer) || price.is_a?(Float)) && price.finite? && price.positive?

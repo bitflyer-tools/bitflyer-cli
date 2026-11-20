@@ -2,7 +2,7 @@ require 'spec_helper'
 require 'timeout'
 
 describe SummaryCommand do
-  let!(:private_client) { stub_private_client }
+  let!(:private_client) { stub_persistent_client }
   let!(:realtime_client) { stub_realtime_client }
   let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.1)] }
   let(:executions_callback) { [] }

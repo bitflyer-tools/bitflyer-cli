@@ -127,7 +127,7 @@ describe Bitflyer::Cli::RealtimeClient do
 
   it 'delivers executions from a trusted peer for the endpoint hostname' do
     with_tls_server(keep_open: true) do |requests, ready|
-      stub_responses(stub_private_client, positions: [], collateral: { 'collateral' => 0 })
+      stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
       command = SummaryCommand.new
       ready << true
       Timeout.timeout(5) do

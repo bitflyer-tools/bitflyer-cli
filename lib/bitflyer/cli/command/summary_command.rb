@@ -4,10 +4,13 @@ require 'colorize'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/has_realtime_client'
 require 'bitflyer/cli/model/position'
+require 'bitflyer/cli/persistent_http_client'
 
 class SummaryCommand
   include HasHTTPClient
   include HasRealtimeClient
+
+  alias http_private_client persistent_http_client
 
   PRICE_FRESHNESS_LIMIT = 30 # seconds
 
@@ -20,6 +23,8 @@ class SummaryCommand
     }
 
     update_balance
+  ensure
+    close_persistent_http_client unless @account_snapshot
   end
 
   def run # rubocop:disable Metrics/MethodLength
@@ -39,17 +44,17 @@ class SummaryCommand
   rescue Interrupt
     # exit
   ensure
-    restore_display(poller, stdout, original_sync) if stdout
+    restore_display(poller, stdout, original_sync)
   end
 
   private
 
   def restore_display(poller, stdout, original_sync)
-    poller&.kill
-    poller&.join
+    poller&.kill&.join
   ensure
-    stdout.print "\e[?25h"
-    stdout.sync = original_sync
+    close_persistent_http_client
+    stdout&.print "\e[?25h"
+    stdout.sync = original_sync if stdout
   end
 
   def render
