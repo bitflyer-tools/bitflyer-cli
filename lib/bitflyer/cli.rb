@@ -16,6 +16,10 @@ require 'bitflyer/cli/version'
 module Bitflyer
   module Cli
     class Runner < Thor
+      def self.exit_on_failure?
+        true
+      end
+
       desc 'cancel_all', 'cancel all of orders'
       def cancel_all
         CancelAllCommand.new.run
