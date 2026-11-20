@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require 'thor'
+require 'net/http'
+require 'openssl'
 require 'bitflyer/cli/has_http_client'
 
 class OrderByTWAPCommand
@@ -11,15 +13,23 @@ class OrderByTWAPCommand
     raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
 
     number = whole_order_count(options.number_of_times)
-    counts = { accepted: 0, rejected: 0 }
-    submit_on_schedule(number, interval) do
-      counts[order(options.type, options.amount)] += 1
-    end
-    puts "TWAP exchange acceptance (slices): #{counts[:accepted]} accepted, #{counts[:rejected]} rejected."
+    counts = submit_slices(options, number, interval)
+    puts "TWAP exchange acceptance (slices): #{counts.map { |status, count| "#{count} #{status}" }.join(', ')}."
     counts
   end
 
   private
+
+  def submit_slices(options, number, interval)
+    counts = { accepted: 0, rejected: 0, unverified: 0, unattempted: number }
+    submit_on_schedule(number, interval) do
+      result = order(options.type, options.amount)
+      counts[result] += 1
+      counts[:unattempted] -= 1
+      break if result == :unverified
+    end
+    counts
+  end
 
   def submit_on_schedule(number, interval)
     deadline = monotonic_time
@@ -51,14 +61,25 @@ class OrderByTWAPCommand
     deadline
   end
 
-  def order(type, amount) # rubocop:disable Metrics/MethodLength
-    response = http_private_client.send_child_order(
+  def order(type, amount)
+    response = submit_order(type, amount)
+  rescue Timeout::Error, SocketError, SystemCallError, IOError,
+         OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError
+    :unverified
+  else
+    report_order(response)
+  end
+
+  def submit_order(type, amount)
+    http_private_client.send_child_order(
       product_code: 'FX_BTC_JPY',
       child_order_type: 'MARKET',
       side: type.upcase,
       size: amount
     )
+  end
 
+  def report_order(response)
     if response['child_order_acceptance_id'].nil?
       puts "An error has occurred\n#{response}"
       :rejected

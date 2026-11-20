@@ -63,7 +63,7 @@ describe Bitflyer::Cli::Runner do
 
   it 'passes options to order_by_twap' do
     allow(OrderByTWAPCommand).to receive(:new).and_return(command)
-    allow(command).to receive(:run).and_return(accepted: 3, rejected: 0)
+    allow(command).to receive(:run).and_return(accepted: 3, rejected: 0, unverified: 0, unattempted: 0)
     start('order_by_twap', '-a', '0.01', '-t', 'sell', '-n', '3', '-i', '10')
     expect(command).to have_received(:run)
       .with(hash_including('amount' => 0.01, 'type' => 'sell', 'number_of_times' => 3, 'interval' => 10))
@@ -96,6 +96,15 @@ describe Bitflyer::Cli::Runner do
       stub_responses(private_client, send_child_order: acceptance)
 
       expect { start_twap }.to output(/TWAP exchange acceptance \(slices\): 3 accepted, 0 rejected/).to_stdout
+    end
+
+    it 'reports partial results and stops submitting when a slice times out' do
+      expect(private_client).to receive(:send_child_order).ordered.and_return(acceptance)
+      expect(private_client).to receive(:send_child_order).ordered.and_raise(Net::ReadTimeout)
+
+      expect do
+        expect { start_twap }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/TWAP exchange acceptance \(slices\): 1 accepted, 0 rejected, 1 unverified, 1 unattempted\./).to_stdout
     end
   end
 
