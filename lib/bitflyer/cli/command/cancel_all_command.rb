@@ -20,7 +20,7 @@ class CancelAllCommand
   private
 
   def cancel
-    CancellationClient.new(api_key, api_secret).post('/v1/me/cancelallchildorders', product_code: 'FX_BTC_JPY')
+    CancellationClient.new(*private_credentials).post('/v1/me/cancelallchildorders', product_code: 'FX_BTC_JPY')
   rescue Timeout::Error, SocketError, SystemCallError, IOError,
          OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError
     raise Rejected, "#{UNVERIFIED}."

@@ -29,7 +29,7 @@ class CancelOrderCommand
   end
 
   def cancel(type, id)
-    client = CancellationClient.new(api_key, api_secret)
+    client = CancellationClient.new(*private_credentials)
     client.post("/v1/me/cancel#{type}order", 'product_code' => 'FX_BTC_JPY', "#{type}_order_id" => id)
   rescue Timeout::Error, SocketError, SystemCallError, IOError,
          OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError

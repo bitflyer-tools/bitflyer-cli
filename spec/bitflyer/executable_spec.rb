@@ -79,9 +79,59 @@ describe 'bitflyer executable' do
 
   it 'completes normally when the cancellation is accepted' do
     stub_credentials
-    stub_cancellation_response('200', '')
+    transport = stub_cancellation_response('200', '')
 
     expect { run_cli('cancel_all') }.to output('').to_stderr
+    expect(transport).to have_received(:request).once
+  end
+
+  [
+    %w[BITFLYER_API_KEY],
+    %w[BITFLYER_API_SECRET],
+    %w[BITFLYER_API_KEY BITFLYER_API_SECRET]
+  ].each do |missing|
+    it "exits before constructing a private client if missing #{missing.join(' and ')}" do
+      stub_credentials
+      expect(CancellationClient).not_to receive(:new)
+      missing.each { |name| allow(ENV).to receive(:fetch).with(name, nil).and_return(nil) }
+
+      expect do
+        expect { run_cli('cancel_all') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output('').to_stdout.and output("Set the required environment variables: #{missing.join(', ')}\n").to_stderr
+    end
+  end
+
+  it 'exits before constructing a persistent private client when credentials are missing' do
+    stub_credentials
+    allow(ENV).to receive(:fetch).with('BITFLYER_API_KEY', nil).and_return(nil)
+    expect(Bitflyer::Cli::PersistentHTTPClient).not_to receive(:new)
+
+    expect do
+      expect { run_cli('order_by_twap', '-a=0.01', '-t=buy', '-i=0', '-n=1') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Set the required environment variables: BITFLYER_API_KEY\n").to_stderr
+  end
+
+  it 'exits before starting the summary feed when credentials are missing' do
+    stub_credentials
+    allow(ENV).to receive(:fetch).with('BITFLYER_API_KEY', nil).and_return(nil)
+    expect(Bitflyer::Cli::PersistentHTTPClient).not_to receive(:new)
+    expect(Bitflyer::Cli::RealtimeClient).not_to receive(:new)
+
+    expect do
+      expect { run_cli('summary') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Set the required environment variables: BITFLYER_API_KEY\n").to_stderr.and output('').to_stdout
+  end
+
+  it 'exits before sending a cancellation request when credentials are missing' do
+    stub_credentials
+    allow(ENV).to receive(:fetch).with('BITFLYER_API_SECRET', nil).and_return(nil)
+    expect(CancellationClient).not_to receive(:new)
+
+    expect do
+      expect { run_cli('cancel_order', 'child', 'JOR-order') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Set the required environment variables: BITFLYER_API_SECRET\n").to_stderr
   end
 
   ['<html>Bad Gateway</html>', ''].each do |body|
@@ -106,6 +156,16 @@ describe 'bitflyer executable' do
         .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("Could not verify cancel-all acceptance from bitFlyer.\n").to_stderr
     expect(transport).to have_received(:request).once
+  end
+
+  it 'exits before constructing an SDK private client when credentials are missing' do
+    stub_credentials
+    allow(ENV).to receive(:fetch).with('BITFLYER_API_KEY', nil).and_return(nil)
+    expect(Bitflyer).not_to receive(:http_private_client)
+
+    expect do
+      expect { run_cli('open_orders') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Set the required environment variables: BITFLYER_API_KEY\n").to_stderr
   end
 
   it 'routes open_orders through the CLI' do

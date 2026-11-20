@@ -14,13 +14,13 @@ module HasHTTPClient
   end
 
   def http_private_client
-    @http_private_client ||= Bitflyer.http_private_client(api_key, api_secret)
+    @http_private_client ||= Bitflyer.http_private_client(*private_credentials)
   end
 
   private
 
   def persistent_http_client
-    @persistent_http_client ||= Bitflyer::Cli::PersistentHTTPClient.new(api_key, api_secret)
+    @persistent_http_client ||= Bitflyer::Cli::PersistentHTTPClient.new(*private_credentials)
   end
 
   def close_persistent_http_client

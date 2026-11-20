@@ -49,9 +49,9 @@ module ClientDoubles
   private
 
   def stub_credentials
-    allow(ENV).to receive(:[]).and_call_original
-    allow(ENV).to receive(:[]).with('BITFLYER_API_KEY').and_return('key')
-    allow(ENV).to receive(:[]).with('BITFLYER_API_SECRET').and_return('secret')
+    allow(ENV).to receive(:fetch).and_call_original
+    allow(ENV).to receive(:fetch).with('BITFLYER_API_KEY', nil).and_return('key')
+    allow(ENV).to receive(:fetch).with('BITFLYER_API_SECRET', nil).and_return('secret')
   end
 
   def with_stubbed_connection
