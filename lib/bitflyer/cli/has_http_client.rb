@@ -43,5 +43,8 @@ module HasHTTPClient
 
     warn "Failed to look up positions: #{positions.inspect}"
     nil
+  rescue Position::InvalidRowError => e
+    warn "Failed to look up positions: #{e.message}"
+    nil
   end
 end
