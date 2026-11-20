@@ -4,10 +4,13 @@ require 'colorize'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/has_realtime_client'
 require 'bitflyer/cli/model/position'
+require 'bitflyer/cli/persistent_http_client'
 
-class SummaryCommand
+class SummaryCommand # rubocop:disable Metrics/ClassLength
   include HasHTTPClient
   include HasRealtimeClient
+
+  alias http_private_client persistent_http_client
 
   PRICE_FRESHNESS_LIMIT = 30 # seconds
 
@@ -15,11 +18,13 @@ class SummaryCommand
     @execution = nil
     realtime_client.disconnected = ->(_error) { @execution = nil }
     realtime_client.executions_fx_btc_jpy = lambda { |message|
-      execution = message.last
-      @execution = [execution['price'].to_f, monotonic_time] if execution
+      price = Float(message.last&.[]('price'), exception: false)
+      @execution = [price, monotonic_time] if price&.finite? && price.positive?
     }
 
     update_balance
+  ensure
+    close_persistent_http_client unless @account_snapshot
   end
 
   def run # rubocop:disable Metrics/MethodLength
@@ -39,17 +44,17 @@ class SummaryCommand
   rescue Interrupt
     # exit
   ensure
-    restore_display(poller, stdout, original_sync) if stdout
+    restore_display(poller, stdout, original_sync)
   end
 
   private
 
   def restore_display(poller, stdout, original_sync)
-    poller&.kill
-    poller&.join
+    poller&.kill&.join
   ensure
-    stdout.print "\e[?25h"
-    stdout.sync = original_sync
+    close_persistent_http_client
+    stdout&.print "\e[?25h"
+    stdout.sync = original_sync if stdout
   end
 
   def render
@@ -77,17 +82,22 @@ class SummaryCommand
       sleep 5
       update_balance
     rescue IOError, Timeout::Error, SocketError, SystemCallError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse
-      position, balance = @account_snapshot
-      @account_snapshot = [position, balance, true].freeze
+      mark_account_stale
     end
   end
 
   def update_balance
     position = fetch_position
-    return unless position
+    return mark_account_stale unless position
 
     balance = http_private_client.collateral['collateral'].to_i
     @account_snapshot = [position, balance, false].freeze
+  end
+
+  def mark_account_stale
+    return unless @account_snapshot
+
+    @account_snapshot = [*@account_snapshot.first(2), true].freeze
   end
 
   def frame(account_snapshot, price)

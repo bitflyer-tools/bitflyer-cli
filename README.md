@@ -6,20 +6,36 @@
 ![](http://ruby-gem-downloads-badge.herokuapp.com/bitflyer-cli?type=total)
 ![GitHub](https://img.shields.io/github/license/bitflyer-tools/bitflyer-cli.svg)
 
-bitflyer-cli is a CLI tool for [Bitflyer](https://bitflyer.jp/) FXBTC.
+bitflyer-cli is a command-line tool for the BTC-CFD/JPY market on
+[bitFlyer Crypto CFD](https://lightning.bitflyer.com/docs?lang=en#api-documentation).
+This market uses `FX_BTC_JPY` as its API product code.
 
 ## Installation
+
+Requires Ruby 3.3 or later.
 
 ```sh
 gem install bitflyer-cli
 ```
 
-Set the `BITFLYER_API_KEY` and `BITFLYER_API_SECRET` environment variables.
+## Quick start
+
+Set the `BITFLYER_API_KEY` and `BITFLYER_API_SECRET` environment variables
+using a bitFlyer API key with permission to read positions and collateral.
 
 ```sh
 export BITFLYER_API_KEY=your-bitflyer-api-key
 export BITFLYER_API_SECRET=your-bitflyer-api-secret
 ```
+
+Run the account summary to view your position and balance alongside the live
+`FX_BTC_JPY` execution price. This command only reads market and account data.
+
+```sh
+bitflyer summary
+```
+
+Press `Ctrl+C` to exit the live display.
 
 ## Usage
 
@@ -57,6 +73,9 @@ The CLI reports when bitFlyer accepts or rejects the request. Network errors
 and HTTP 5xx responses leave acceptance unverified. Rejected and unverified
 requests exit unsuccessfully. Run `bitflyer open_orders` again to check the
 order's status.
+
+For help with credentials, missing prices, and order status, see
+[Troubleshooting](docs/troubleshooting.md).
 
 ## Contributing
 

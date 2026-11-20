@@ -3,25 +3,32 @@
 require 'thor'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/order_amount'
+require 'bitflyer/cli/persistent_http_client'
 
 class OrderByTWAPCommand
   include HasHTTPClient
 
+  alias http_private_client persistent_http_client
+
   def run(options)
     amount = OrderAmount.validate!(options.amount)
-    interval = options.interval
-    raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
+    validate_interval!(options.interval)
 
-    number = whole_order_count(options.number_of_times)
     counts = { accepted: 0, rejected: 0 }
-    submit_on_schedule(number, interval) do
+    submit_on_schedule(whole_order_count(options.number_of_times), options.interval) do
       counts[order(options.type, amount)] += 1
     end
     puts "TWAP exchange acceptance (slices): #{counts[:accepted]} accepted, #{counts[:rejected]} rejected."
     counts
+  ensure
+    close_persistent_http_client
   end
 
   private
+
+  def validate_interval!(interval)
+    raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
+  end
 
   def submit_on_schedule(number, interval)
     deadline = monotonic_time
