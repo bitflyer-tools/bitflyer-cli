@@ -28,6 +28,14 @@ describe IFDOCOByRangeCommand do
     }
   end
 
+  [Float::INFINITY, -Float::INFINITY, Float::NAN].each do |amount|
+    it "rejects a non-finite amount of #{amount}" do
+      expect { run('buy', amount: amount) }.to raise_error(Thor::Error, 'Amount must be positive and finite.')
+      expect(public_client).not_to have_received(:ticker)
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+  end
+
   it 'splits the range into profit and loss lines for a buy' do
     expect { run('buy') }.to output(<<~OUTPUT).to_stdout
       Send market order BUY / 0.01
@@ -76,7 +84,6 @@ describe IFDOCOByRangeCommand do
       [
         [{ amount: 0 }, /Amount must be positive/],
         [{ amount: -0.01 }, /Amount must be positive/],
-        [{ amount: Float::INFINITY }, /Amount must be positive and finite/],
         [{ range: 0 }, /Range must be positive/],
         [{ range: -10_000 }, /Range must be positive/],
         [{ range: Float::INFINITY }, /Range must be positive and finite/],
@@ -114,8 +121,8 @@ describe IFDOCOByRangeCommand do
   context 'when the order is rejected' do
     let(:response) { { 'status' => -200 } }
 
-    it 'prints the error response' do
-      expect { run('buy') }.to output(/An error has occurred/).to_stdout
+    it 'raises with the exchange rejection' do
+      expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected, /Order rejected:.*-200/)
     end
   end
 end

@@ -10,8 +10,16 @@ describe OrderByBestCommand do
     stub_responses(private_client, send_child_order: response)
   end
 
-  def run(type)
-    described_class.new.run(thor_options(amount: 0.01, type: type))
+  def run(type, amount: 0.01)
+    described_class.new.run(thor_options(amount: amount, type: type))
+  end
+
+  [Float::INFINITY, -Float::INFINITY, Float::NAN].each do |amount|
+    it "rejects a non-finite amount of #{amount}" do
+      expect { run('buy', amount: amount) }.to raise_error(Thor::Error, 'Amount must be positive and finite.')
+      expect(public_client).not_to have_received(:ticker)
+      expect(private_client).not_to have_received(:send_child_order)
+    end
   end
 
   it 'places a buy limit order at the best bid' do
@@ -69,8 +77,8 @@ describe OrderByBestCommand do
   context 'when the order is rejected' do
     let(:response) { { 'status' => -200 } }
 
-    it 'prints the error response' do
-      expect { run('buy') }.to output(/An error has occurred/).to_stdout
+    it 'raises with the exchange rejection' do
+      expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected, /Order rejected:.*-200/)
     end
   end
 end

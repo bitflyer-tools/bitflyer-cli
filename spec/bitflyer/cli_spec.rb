@@ -69,6 +69,34 @@ describe Bitflyer::Cli::Runner do
       .with(hash_including('amount' => 0.01, 'type' => 'sell', 'number_of_times' => 3, 'interval' => 10))
   end
 
+  {
+    'order_by_best' => [],
+    'order_by_twap' => %w[--number-of-times=2 --interval=10],
+    'ifdoco_by_range' => %w[--range=10000 --percentage=60]
+  }.each do |name, strategy_options|
+    %w[0 -0.01].each do |amount|
+      it "rejects an amount of #{amount} for #{name} before doing exchange or scheduling work" do
+        public_client = stub_public_client
+        private_client = stub_private_client
+        expect(public_client).not_to receive(:ticker)
+        expect(private_client).not_to receive(:send_child_order)
+        expect(private_client).not_to receive(:send_parent_order)
+
+        if name == 'order_by_twap'
+          twap = OrderByTWAPCommand.new
+          allow(OrderByTWAPCommand).to receive(:new).and_return(twap)
+          expect(twap).not_to receive(:monotonic_time)
+          expect(twap).not_to receive(:sleep)
+        end
+
+        expect do
+          expect { start(name, "--amount=#{amount}", '--type=buy', *strategy_options) }
+            .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output(/^Amount must be positive and finite\.$/).to_stderr
+      end
+    end
+  end
+
   describe 'order_by_twap submission results' do
     let!(:private_client) { stub_persistent_client }
     let(:acceptance) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' } }
@@ -104,8 +132,11 @@ describe Bitflyer::Cli::Runner do
       private_client = stub_persistent_client
       allow(private_client).to receive(:send_child_order)
 
-      expect { start('order_by_twap', '-a', '0.01', '-t', 'buy', "--number-of-times=#{count}", '-i', '0') }
-        .to output(/^--number-of-times must be a positive whole number$/).to_stderr
+      expect do
+        expect do
+          start('order_by_twap', '-a', '0.01', '-t', 'buy', "--number-of-times=#{count}", '-i', '0')
+        end.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/^--number-of-times must be a positive whole number$/).to_stderr
       expect(private_client).not_to have_received(:send_child_order)
     end
   end
@@ -115,7 +146,9 @@ describe Bitflyer::Cli::Runner do
     stub_responses(client, send_child_order: { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' })
 
     expect do
-      start('order_by_twap', '--amount', '0.01', '--type', 'hold', '--number-of-times', '2', '--interval', '0')
+      expect do
+        start('order_by_twap', '--amount', '0.01', '--type', 'hold', '--number-of-times', '2', '--interval', '0')
+      end.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output(/^Order type must be buy or sell$/).to_stderr
     expect(client).not_to have_received(:send_child_order)
   end
@@ -125,7 +158,9 @@ describe Bitflyer::Cli::Runner do
     stub_responses(client, send_child_order: { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' })
 
     expect do
-      start('order_by_twap', '--amount', '0.01', '--type', 'buy', '--number-of-times', '2', '--interval', '-1')
+      expect do
+        start('order_by_twap', '--amount', '0.01', '--type', 'buy', '--number-of-times', '2', '--interval', '-1')
+      end.to raise_error(SystemExit)
     end.to output(/^Invalid interval: --interval must be non-negative\.$/).to_stderr
     expect(client).not_to have_received(:send_child_order)
   end
@@ -145,7 +180,9 @@ describe Bitflyer::Cli::Runner do
 
   it 'does not run a command when a required option is missing' do
     allow(OrderByBestCommand).to receive(:new)
-    expect { start('order_by_best', '-a', '0.01') }.to output(/required options/).to_stderr
+    expect do
+      expect { start('order_by_best', '-a', '0.01') }.to raise_error(SystemExit)
+    end.to output(/required options/).to_stderr
     expect(OrderByBestCommand).not_to have_received(:new)
   end
 
