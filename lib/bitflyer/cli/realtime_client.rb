@@ -27,7 +27,7 @@ module Bitflyer
           return if @websocket_client&.connecting?
 
           super
-        rescue SocketError => e
+        rescue SocketError, SystemCallError => e
           debug_log e
         end
       end
