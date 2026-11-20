@@ -20,8 +20,17 @@ describe OrderByTWAPCommand do
     end
   end
 
-  def run(interval: 10)
-    command.run(thor_options(amount: 0.01, type: 'buy', number_of_times: number_of_times, interval: interval))
+  def run(interval: 10, amount: 0.01)
+    command.run(thor_options(amount: amount, type: 'buy', number_of_times: number_of_times, interval: interval))
+  end
+
+  [Float::INFINITY, -Float::INFINITY, Float::NAN].each do |amount|
+    it "rejects a non-finite amount of #{amount}" do
+      expect(command).not_to receive(:monotonic_time)
+      expect { run(amount: amount) }.to raise_error(Thor::Error, 'Amount must be positive and finite.')
+      expect(command).not_to have_received(:sleep)
+      expect(private_client).not_to have_received(:send_child_order)
+    end
   end
 
   it 'sends the given number of market orders' do

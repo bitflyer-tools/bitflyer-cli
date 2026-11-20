@@ -57,8 +57,7 @@ class SummaryCommand
 
   def render
     puts "\n" * 3
-    previous_frame = nil
-    previous_inputs = nil
+    previous_frame = previous_inputs = nil
 
     loop do
       previous_inputs, previous_frame = redraw(previous_inputs, previous_frame)
@@ -88,7 +87,9 @@ class SummaryCommand
     position = fetch_position
     return mark_account_stale unless position
 
-    balance = http_private_client.collateral['collateral'].to_i
+    balance = fetch_collateral
+    return mark_account_stale if balance.nil?
+
     @account_snapshot = [position, balance, false].freeze
   end
 

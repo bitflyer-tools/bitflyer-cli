@@ -1,11 +1,49 @@
 require 'spec_helper'
+require 'open3'
 
 describe 'bitflyer executable' do
   let(:private_client) { stub_private_client }
 
+  def run_bitflyer(*args)
+    Open3.capture3(RbConfig.ruby, '-Ilib', 'exe/bitflyer', *args, chdir: File.expand_path('../..', __dir__))
+  end
+
   def run_cli(*args)
     stub_const('ARGV', args)
     load File.expand_path('../../exe/bitflyer', __dir__)
+  end
+
+  it 'exits unsuccessfully when a required option is missing' do
+    _, stderr, status = run_bitflyer('order_by_best', '-a', '0.01')
+
+    expect(status.exitstatus).to eq(1)
+    expect(stderr).to match(/required options.*--type/)
+  end
+
+  it 'exits unsuccessfully for a fractional TWAP order count' do
+    _, stderr, status = run_bitflyer('order_by_twap', '-a', '0.01', '-t', 'buy', '-n', '1.9', '-i', '0')
+
+    expect(status.exitstatus).to eq(1)
+    expect(stderr).to include('--number-of-times must be a positive whole number')
+  end
+
+  it 'exits successfully when displaying help' do
+    stdout, stderr, status = run_bitflyer('help', 'order_by_best')
+
+    expect(status).to be_success
+    expect(stdout).to include('order_by_best')
+    expect(stderr).to be_empty
+  end
+
+  it 'prints a protective stop lookup failure to stderr and exits unsuccessfully without placing an order' do
+    positions = [position(side: 'BUY', price: 1_000_000, size: 0.2)]
+    stub_responses(private_client, positions: positions, parent_orders: { 'status' => -200 }, send_parent_order: {})
+
+    expect do
+      expect { run_cli('stop_by_range', '--range=5000') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output(/Failed to look up active parent orders:.*-200/).to_stderr
+    expect(private_client).not_to have_received(:send_parent_order)
   end
 
   it 'prints a ticker rejection to stderr and exits unsuccessfully without placing an order' do
@@ -180,5 +218,37 @@ describe 'bitflyer executable' do
     expect do
       expect { run_cli('cancel_order', 'child', 'JOR-order') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("Could not verify cancellation acceptance from bitFlyer.\n").to_stderr
+  end
+
+  {
+    %w[counter_trade] => 'child',
+    %w[order_by_best --amount=0.01 --type=buy] => 'child',
+    %w[stop_by_range --range=5000] => 'parent',
+    %w[ifdoco_by_range --amount=0.01 --type=buy --range=10000 --percentage=60] => 'parent'
+  }.each do |args, order_type|
+    context "when running #{args.first}" do
+      let(:order_method) { :"send_#{order_type}_order" }
+
+      before do
+        positions = [position(side: 'BUY', price: 1_000_000, size: 0.1)]
+        stub_responses(private_client, positions: positions, parent_orders: [])
+        stub_responses(stub_public_client, ticker: { 'best_bid' => 1_000_000, 'ltp' => 1_000_000 })
+      end
+
+      it 'prints the exchange rejection to stderr and exits unsuccessfully' do
+        stub_responses(private_client, order_method => { 'status' => -205, 'error_message' => 'Insufficient margin' })
+
+        expect do
+          expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Insufficient margin\n").to_stderr.and output('').to_stdout
+      end
+
+      it 'completes normally when the order is accepted' do
+        stub_responses(private_client, order_method => { "#{order_type}_order_acceptance_id" => 'accepted' })
+
+        expect { run_cli(*args) }.to output('').to_stderr.and output(/.+/).to_stdout
+        expect(private_client).to have_received(order_method)
+      end
+    end
   end
 end
