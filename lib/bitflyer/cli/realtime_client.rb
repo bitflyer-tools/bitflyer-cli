@@ -16,7 +16,33 @@ module Bitflyer
         @websocket_client = VerifiedWebSocket.new(host: Realtime::SOCKET_HOST, key: nil, secret: nil)
       end
 
+      def shutdown
+        @websocket_client.shutdown
+      end
+
       class VerifiedWebSocket < Bitflyer::Realtime::WebSocketClient
+        def initialize(**options)
+          @lifecycle = Mutex.new
+          super
+        rescue StandardError
+          shutdown
+          raise
+        end
+
+        def shutdown
+          @lifecycle.synchronize do
+            @stopped = true
+            @monitor&.kill
+          end
+          @monitor&.join
+        ensure
+          @websocket_client&.shutdown
+        end
+
+        def start_monitoring
+          @monitor = super
+        end
+
         def connect
           endpoint = URI.parse("#{@host}/socket.io/?transport=websocket")
           @websocket_client = TLSConnection.new(endpoint)
@@ -24,11 +50,25 @@ module Bitflyer
         end
 
         def reconnect
-          return if @websocket_client&.connecting?
+          # A reader handling an error must not wait for a reconnect that is joining it.
+          return unless @lifecycle.try_lock
 
-          super
-        rescue SocketError => e
-          debug_log e
+          begin
+            return if @stopped || connection_active?
+
+            @websocket_client&.shutdown
+            connect
+          rescue SocketError => e
+            debug_log e
+          ensure
+            @lifecycle.unlock
+          end
+        end
+
+        private
+
+        def connection_active?
+          @websocket_client&.open? || @websocket_client&.connecting?
         end
       end
 
@@ -49,7 +89,7 @@ module Bitflyer
         def start(transport)
           register_handlers(transport)
           @driver.start
-          Thread.new { read_messages(transport) }
+          @reader = Thread.new { read_messages(transport) }
         rescue StandardError
           close
           raise
@@ -73,6 +113,11 @@ module Bitflyer
 
         def close
           @socket.close
+        end
+
+        def shutdown
+          close
+          @reader&.join unless @reader == Thread.current
         end
 
         private

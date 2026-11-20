@@ -2,25 +2,15 @@
 
 require 'colorize'
 require 'bitflyer/cli/has_http_client'
-require 'bitflyer/cli/has_realtime_client'
+require 'bitflyer/cli/realtime_client'
 require 'bitflyer/cli/model/position'
 
 class SummaryCommand
   include HasHTTPClient
-  include HasRealtimeClient
 
   PRICE_FRESHNESS_LIMIT = 30 # seconds
 
-  def initialize
-    @execution = nil
-    realtime_client.disconnected = ->(_error) { @execution = nil }
-    realtime_client.executions_fx_btc_jpy = lambda { |message|
-      execution = message.last
-      @execution = [execution['price'].to_f, monotonic_time] if execution
-    }
-
-    update_balance
-  end
+  def initialize = update_balance
 
   def run # rubocop:disable Metrics/MethodLength
     return unless @account_snapshot
@@ -28,10 +18,13 @@ class SummaryCommand
     stdout = $stdout
     original_sync = stdout.sync
     stdout.sync = true
-    print "\e[?25l"
+    stdout.print "\e[?25l"
 
-    poller = nil
+    feed = poller = nil
     Thread.handle_interrupt(Interrupt => :never) do
+      @execution = nil
+      feed = Bitflyer::Cli::RealtimeClient.new
+      subscribe_to_feed(feed)
       poller = Thread.new { poll_account }
     end
 
@@ -39,13 +32,22 @@ class SummaryCommand
   rescue Interrupt
     # exit
   ensure
-    restore_display(poller, stdout, original_sync) if stdout
+    Thread.handle_interrupt(Interrupt => :never) { restore_display(feed, poller, stdout, original_sync) if stdout }
   end
 
   private
 
-  def restore_display(poller, stdout, original_sync)
+  def subscribe_to_feed(feed)
+    feed.disconnected = ->(_error) { @execution = nil }
+    feed.executions_fx_btc_jpy = lambda { |message|
+      execution = message.last
+      @execution = [execution['price'].to_f, monotonic_time] if execution
+    }
+  end
+
+  def restore_display(feed, poller, stdout, original_sync)
     poller&.kill
+    feed&.shutdown
     poller&.join
   ensure
     stdout.print "\e[?25h"

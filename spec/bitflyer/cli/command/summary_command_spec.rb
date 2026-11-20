@@ -7,10 +7,14 @@ describe SummaryCommand do
   let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.1)] }
   let(:executions_callback) { [] }
   let(:disconnect_callback) { [] }
+  let(:opening_executions) { [] }
 
   before do
     stub_responses(private_client, positions: positions, collateral: { 'collateral' => 50_000 })
-    allow(realtime_client).to receive(:executions_fx_btc_jpy=) { |callback| executions_callback << callback }
+    allow(realtime_client).to receive(:executions_fx_btc_jpy=) do |callback|
+      executions_callback << callback
+      opening_executions.shift(opening_executions.size).each { |batch| callback.call(batch) }
+    end
     allow(realtime_client).to receive(:disconnected=) { |callback| disconnect_callback << callback }
   end
 
@@ -24,6 +28,7 @@ describe SummaryCommand do
     it 'reports the API error and skips account rendering' do
       expect(Position).not_to receive(:new)
       expect(Thread).not_to receive(:new)
+      expect(Bitflyer::Cli::RealtimeClient).not_to receive(:new)
       output = capture_stdout do
         $stdout.sync = false
         expect { described_class.new.run }.to output(/Failed to look up positions:.*-200.*Invalid API key/).to_stderr
@@ -54,7 +59,7 @@ describe SummaryCommand do
 
     expect { capture_stdout { command.run } }.to output(/Failed to look up positions:.*-200/).to_stderr
     expect(private_client).to have_received(:collateral).once
-    executions_callback.first.call([{ 'price' => 1_000_000 }])
+    opening_executions << [{ 'price' => 1_000_000 }]
     expect(capture_stdout { run_once(command) }).to include('Position: 1,000,000 * 0.1', 'Balance:  50,000')
   end
 
@@ -74,7 +79,7 @@ describe SummaryCommand do
 
   it 'prints the current price, spread and balance with profit' do
     command = described_class.new
-    executions_callback.first.call([{ 'price' => 1_005_000 }, { 'price' => 1_010_000 }])
+    opening_executions << [{ 'price' => 1_005_000 }, { 'price' => 1_010_000 }]
 
     output = capture_stdout { run_once(command) }
 
@@ -84,7 +89,7 @@ describe SummaryCommand do
 
   it 'renders a negative spread and loss in red' do
     command = described_class.new
-    executions_callback.first.call([{ 'price' => 990_000 }])
+    opening_executions << [{ 'price' => 990_000 }]
 
     output = capture_stdout { run_once(command) }
 
@@ -95,7 +100,7 @@ describe SummaryCommand do
   it 'keeps the last complete account data until a scheduled refresh succeeds' do
     command = described_class.new
     execution = [{ 'price' => 1_000_000 }]
-    executions_callback.first.call(execution)
+    opening_executions << execution
     new_positions = [position(side: 'BUY', price: 1_100_000, size: 0.2)]
     expect(private_client).to receive(:positions).ordered.and_return(new_positions)
     expect(private_client).to receive(:collateral).ordered.and_raise(IOError)
@@ -111,9 +116,9 @@ describe SummaryCommand do
     allow(command).to receive(:sleep).with(5) { Fiber.yield }
     expect(command).to receive(:sleep).with(0.1).exactly(5).times.and_invoke(
       ->(_) { poller.resume },
-      ->(_) { disconnect_callback.first.call(nil) },
+      ->(_) { disconnect_callback.last.call(nil) },
       ->(_) { poller.resume },
-      ->(_) { executions_callback.first.call(execution) },
+      ->(_) { executions_callback.last.call(execution) },
       ->(_) { raise Interrupt }
     )
 
@@ -130,7 +135,7 @@ describe SummaryCommand do
 
   it 'shows the previous account snapshot until collateral arrives' do
     command = described_class.new
-    executions_callback.first.call([{ 'price' => 2_000_000 }])
+    opening_executions << [{ 'price' => 2_000_000 }]
     collateral_started = Queue.new
     release_collateral = Queue.new
     allow(private_client).to receive(:positions).and_return([position(side: 'BUY', price: 2_000_000, size: 0.2)])
@@ -145,6 +150,7 @@ describe SummaryCommand do
     output = capture_stdout { run_once(command) }
     expect(output).to include('Position: 1,000,000 * 0.1', 'Balance:  150,000')
 
+    opening_executions << [{ 'price' => 2_000_000 }]
     release_collateral << true
     Timeout.timeout(5) { refresh.value }
     output = capture_stdout { run_once(command) }
@@ -156,7 +162,7 @@ describe SummaryCommand do
 
   it 'keeps the previous account snapshot when fetching collateral fails' do
     command = described_class.new
-    executions_callback.first.call([{ 'price' => 2_000_000 }])
+    opening_executions << [{ 'price' => 2_000_000 }]
     allow(private_client).to receive(:positions).and_return([position(side: 'BUY', price: 2_000_000, size: 0.2)])
     allow(private_client).to receive(:collateral).and_raise(IOError, 'Collateral request failed')
 
@@ -169,9 +175,9 @@ describe SummaryCommand do
     account_position = Position.new(positions)
     allow(Position).to receive(:new).with(positions).and_return(account_position)
     command = described_class.new
-    executions_callback.first.call([{ 'price' => 1_010_000 }])
+    opening_executions << [{ 'price' => 1_010_000 }]
     allow(account_position).to receive(:profit).and_wrap_original do |original, price|
-      executions_callback.first.call([{ 'price' => 1_020_000 }])
+      executions_callback.last.call([{ 'price' => 1_020_000 }])
       original.call(price)
     end
 
@@ -191,30 +197,29 @@ describe SummaryCommand do
     it 'withholds market-derived values after an account refresh until a new execution arrives' do
       command = described_class.new
       allow(command).to receive(:monotonic_time).and_return(100)
-      executions_callback.first.call([{ 'price' => 1_010_000 }])
-      expect(capture_stdout { run_once(command) }).to include('Balance:  51,000')
-
-      invalidate_price.call(command)
-      stub_responses(
-        private_client,
-        positions: [position(side: 'BUY', price: 1_010_000, size: 0.2)],
-        collateral: { 'collateral' => 60_000 }
+      opening_executions << [{ 'price' => 1_010_000 }]
+      frames = capture_stdout do
+        run_iterations(
+          command,
+          -> { invalidate_price.call(command) },
+          lambda {
+            refresh_account(command, price: 1_010_000, size: 0.2, collateral: 60_000)
+            executions_callback.last.call([])
+          },
+          -> { executions_callback.last.call([{ 'price' => 1_020_000 }]) }
+        )
+      end.split("\e[4F\e[0J").drop(1)
+      expect(frames.first).to include('Balance:  51,000')
+      expect(frames[-2]).to include(
+        'Current:  Stale', 'Position: 1,010,000 * 0.2', 'Spread:   N/A', 'Balance:  N/A (N/A)'
       )
-      command.send(:update_balance)
-      executions_callback.first.call([])
-
-      output = capture_stdout { run_once(command) }
-      expect(output).to include('Current:  Stale', 'Position: 1,010,000 * 0.2', 'Spread:   N/A', 'Balance:  N/A (N/A)')
-
-      executions_callback.first.call([{ 'price' => 1_020_000 }])
-      output = capture_stdout { run_once(command) }
-      expect(output).to include('Current:  1,020,000', 'Balance:  62,000')
-      expect(output).to match(/Spread:   \+.*10,000/).and match(/\(\+.*2,000/)
+      expect(frames.last).to include('Current:  1,020,000', 'Balance:  62,000')
+      expect(frames.last).to match(/Spread:   \+.*10,000/).and match(/\(\+.*2,000.*\)/)
     end
   end
 
   context 'when the WebSocket disconnects' do
-    let(:invalidate_price) { ->(_command) { disconnect_callback.first.call(nil) } }
+    let(:invalidate_price) { ->(_command) { disconnect_callback.last.call(nil) } }
 
     it_behaves_like 'an invalidated execution price'
   end
@@ -223,7 +228,6 @@ describe SummaryCommand do
     let(:invalidate_price) do
       lambda do |command|
         allow(command).to receive(:monotonic_time).and_return(129.9)
-        expect(capture_stdout { run_once(command) }).to include('Current:  1,010,000')
         allow(command).to receive(:monotonic_time).and_return(130)
       end
     end
@@ -235,10 +239,10 @@ describe SummaryCommand do
     command = described_class.new
     allow(command).to receive(:monotonic_time).and_return(100)
     execution = [{ 'price' => 1_010_000 }]
-    executions_callback.first.call(execution)
+    opening_executions << execution
     repeat_price = lambda do
       allow(command).to receive(:monotonic_time).and_return(129)
-      executions_callback.first.call(execution)
+      executions_callback.last.call(execution)
     end
     expect(command).to receive(:frame).once.and_call_original
 
@@ -249,11 +253,11 @@ describe SummaryCommand do
 
   it 'draws once when different prices produce the same visible values' do
     command = described_class.new
-    executions_callback.first.call([{ 'price' => 1_010_000 }])
+    opening_executions << [{ 'price' => 1_010_000 }]
     expect(command).to receive(:frame).twice.and_call_original
 
     output = capture_stdout do
-      run_iterations(command, -> {}, -> { executions_callback.first.call([{ 'price' => 1_010_000.5 }]) }, -> {})
+      run_iterations(command, -> {}, -> { executions_callback.last.call([{ 'price' => 1_010_000.5 }]) }, -> {})
     end
 
     expect(output.scan("\e[4F\e[0J").size).to eq(1)
@@ -263,7 +267,7 @@ describe SummaryCommand do
   it 'redraws on the next iteration after a price, position, spread or balance change' do
     command = described_class.new
     changes = [
-      -> { executions_callback.first.call([{ 'price' => 1_010_000 }]) },
+      -> { executions_callback.last.call([{ 'price' => 1_010_000 }]) },
       -> { refresh_account(command, price: 1_000_000, size: 0.2, collateral: 50_000) },
       -> { refresh_account(command, price: 1_005_000, size: 0.2, collateral: 50_000) },
       -> { refresh_account(command, price: 1_005_000, size: 0.2, collateral: 60_000) }
@@ -284,9 +288,9 @@ describe SummaryCommand do
     command = described_class.new
     allow(command).to receive(:monotonic_time).and_return(100)
     execution = [{ 'price' => 1_010_000 }]
-    executions_callback.first.call(execution)
+    opening_executions << execution
     expire_price = -> { allow(command).to receive(:monotonic_time).and_return(130) }
-    renew_price = -> { executions_callback.first.call(execution) }
+    renew_price = -> { executions_callback.last.call(execution) }
     expect(command).to receive(:frame).exactly(3).times.and_call_original
 
     output = capture_stdout { run_iterations(command, expire_price, -> {}, renew_price) }
@@ -304,9 +308,9 @@ describe SummaryCommand do
     expect(positions).not_to receive(:inject)
     expect(positions.first).not_to receive(:[])
 
-    executions_callback.first.call([{ 'price' => 1_010_000 }])
+    opening_executions << [{ 'price' => 1_010_000 }]
     first_frame = capture_stdout { run_once(command) }
-    executions_callback.first.call([{ 'price' => 1_020_000 }])
+    opening_executions << [{ 'price' => 1_020_000 }]
     second_frame = capture_stdout { run_once(command) }
 
     expect(first_frame).to include('Position: 1,000,000 * 0.1', 'Balance:  51,000')
@@ -351,7 +355,7 @@ describe SummaryCommand do
 
     it 'shows zero net size and spread while retaining the profit' do
       command = described_class.new
-      executions_callback.first.call([{ 'price' => 1_010_000 }])
+      opening_executions << [{ 'price' => 1_010_000 }]
 
       output = capture_stdout { run_once(command) }
 
@@ -366,7 +370,7 @@ describe SummaryCommand do
 
     it 'shows the spread from the signed average' do
       command = described_class.new
-      executions_callback.first.call([{ 'price' => 1_010_000 }])
+      opening_executions << [{ 'price' => 1_010_000 }]
 
       output = capture_stdout { run_once(command) }
 
