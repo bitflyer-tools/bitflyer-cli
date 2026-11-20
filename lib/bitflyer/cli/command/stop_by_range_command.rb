@@ -19,6 +19,8 @@ class StopByRangeCommand
     return puts "You don't have any position now." if position.flat?
 
     stop = stop_parameters(position, options.range)
+    return unless stop
+
     order_id = existing_stop_id(stop)
     description = stop.values_at(:side, :trigger_price, :size).join(' / ')
     return puts "Existing stop order #{description} (#{order_id})" if order_id
@@ -29,13 +31,16 @@ class StopByRangeCommand
   private
 
   def stop_parameters(position, range)
+    size = position_order_size(position)
+    return unless size
+
     side = position.size.positive? ? 'SELL' : 'BUY'
     {
       product_code: PRODUCT_CODE,
       condition_type: 'STOP',
       side: side,
       trigger_price: position.average + (range * (side == 'BUY' ? 1.0 : -1.0)),
-      size: position.size.abs.to_f
+      size: size
     }
   end
 

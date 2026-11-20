@@ -2,7 +2,7 @@ require 'spec_helper'
 require 'timeout'
 
 describe SummaryCommand do
-  let!(:private_client) { stub_private_client }
+  let!(:private_client) { stub_persistent_client }
   let!(:realtime_client) { stub_realtime_client }
   let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.1)] }
   let(:executions_callback) { [] }
@@ -24,7 +24,12 @@ describe SummaryCommand do
     it 'reports the API error and skips account rendering' do
       expect(Position).not_to receive(:new)
       expect(Thread).not_to receive(:new)
-      expect { described_class.new.run }.to output(/Failed to look up positions:.*-200.*Invalid API key/).to_stderr
+      output = capture_stdout do
+        $stdout.sync = false
+        expect { described_class.new.run }.to output(/Failed to look up positions:.*-200.*Invalid API key/).to_stderr
+        expect($stdout.sync).to be(false)
+      end
+      expect(output).to be_empty
       expect(private_client).not_to have_received(:collateral)
     end
   end
@@ -74,7 +79,17 @@ describe SummaryCommand do
     output = capture_stdout { run_once(command) }
 
     expect(output).to include('Current:  1,010,000', 'Position: 1,000,000 * 0.1', 'Balance:  51,000')
-    expect(output).to match(/Spread:   \+.*10,000/).and match(/\(\+.*1,000/)
+    expect(output).to include("Spread:   +\e[0;32;49m10,000\e[0m", "(+\e[0;32;49m1,000\e[0m)")
+  end
+
+  it 'renders a negative spread and loss in red' do
+    command = described_class.new
+    executions_callback.first.call([{ 'price' => 990_000 }])
+
+    output = capture_stdout { run_once(command) }
+
+    expect(output).to include("Spread:   \e[0;31;49m-10,000\e[0m")
+    expect(output).to include("Balance:  #{'49,000'.ljust(15)} (\e[0;31;49m-1,000\e[0m)")
   end
 
   it 'keeps the last complete account data until a scheduled refresh succeeds' do
@@ -91,6 +106,7 @@ describe SummaryCommand do
     allow(Thread).to receive(:new) do |&poll|
       poller = Fiber.new(&poll)
       poller.resume
+      instance_double(Thread, kill: nil, join: nil)
     end
     allow(command).to receive(:sleep).with(5) { Fiber.yield }
     expect(command).to receive(:sleep).with(0.1).exactly(5).times.and_invoke(
@@ -171,6 +187,44 @@ describe SummaryCommand do
     expect(output).to include('Current:  Stale', 'Spread:   N/A', 'Balance:  N/A (N/A)')
   end
 
+  {
+    'missing' => {},
+    'empty' => { 'price' => '' },
+    'nonnumeric' => { 'price' => 'invalid' },
+    'partially numeric' => { 'price' => '1010000invalid' },
+    'zero' => { 'price' => 0 },
+    'negative' => { 'price' => -1 },
+    'NaN' => { 'price' => Float::NAN },
+    'infinite' => { 'price' => Float::INFINITY },
+    'overflowing' => { 'price' => '1e999' }
+  }.each do |description, invalid_execution|
+    it "ignores a #{description} execution price without renewing the last valid price" do
+      command = described_class.new
+      receive_execution = executions_callback.first
+      allow(command).to receive(:monotonic_time).and_return(100)
+
+      receive_execution.call([invalid_execution])
+      stale = capture_stdout { run_once(command) }
+      expect(stale).to include('Current:  Stale', 'Spread:   N/A', 'Balance:  N/A (N/A)')
+
+      receive_execution.call([{ 'price' => 1_010_000 }])
+      marked = capture_stdout { run_once(command) }
+      expect(marked).to include('Current:  1,010,000', 'Balance:  51,000')
+
+      allow(command).to receive(:monotonic_time).and_return(129)
+      receive_execution.call([invalid_execution])
+      expect(capture_stdout { run_once(command) }).to eq(marked)
+
+      allow(command).to receive(:monotonic_time).and_return(130)
+      expect(capture_stdout { run_once(command) }).to eq(stale)
+      receive_execution.call([invalid_execution])
+      expect(capture_stdout { run_once(command) }).to eq(stale)
+
+      receive_execution.call([{ 'price' => '1020000' }])
+      expect(capture_stdout { run_once(command) }).to include('Current:  1,020,000', 'Balance:  52,000')
+    end
+  end
+
   shared_examples 'an invalidated execution price' do
     it 'withholds market-derived values after an account refresh until a new execution arrives' do
       command = described_class.new
@@ -215,9 +269,26 @@ describe SummaryCommand do
     it_behaves_like 'an invalidated execution price'
   end
 
-  it 'draws once when consecutive iterations have the same visible values' do
+  it 'builds one frame while the account and fresh price stay the same' do
+    command = described_class.new
+    allow(command).to receive(:monotonic_time).and_return(100)
+    execution = [{ 'price' => 1_010_000 }]
+    executions_callback.first.call(execution)
+    repeat_price = lambda do
+      allow(command).to receive(:monotonic_time).and_return(129)
+      executions_callback.first.call(execution)
+    end
+    expect(command).to receive(:frame).once.and_call_original
+
+    output = capture_stdout { run_iterations(command, -> {}, repeat_price, -> {}) }
+
+    expect(output.scan("\e[4F\e[0J").size).to eq(1)
+  end
+
+  it 'draws once when different prices produce the same visible values' do
     command = described_class.new
     executions_callback.first.call([{ 'price' => 1_010_000 }])
+    expect(command).to receive(:frame).twice.and_call_original
 
     output = capture_stdout do
       run_iterations(command, -> {}, -> { executions_callback.first.call([{ 'price' => 1_010_000.5 }]) }, -> {})
@@ -254,6 +325,7 @@ describe SummaryCommand do
     executions_callback.first.call(execution)
     expire_price = -> { allow(command).to receive(:monotonic_time).and_return(130) }
     renew_price = -> { executions_callback.first.call(execution) }
+    expect(command).to receive(:frame).exactly(3).times.and_call_original
 
     output = capture_stdout { run_iterations(command, expire_price, -> {}, renew_price) }
     frames = output.split("\e[4F\e[0J").drop(1)
@@ -279,10 +351,35 @@ describe SummaryCommand do
     expect(second_frame).to include('Position: 1,000,000 * 0.1', 'Balance:  52,000')
   end
 
-  it 'restores the cursor when interrupted' do
-    output = capture_stdout { run_once(described_class.new) }
+  it 'stops the poller and restores stdout on each interrupted run' do
+    command = described_class.new
+    started = Queue.new
+    workers = []
 
-    expect(output).to start_with("\e[?25l").and end_with("\e[?25h")
+    allow(command).to receive(:sleep).with(5) do
+      started << Thread.current
+      Thread.stop
+    end
+    allow(command).to receive(:sleep).with(0.1) do
+      workers << Timeout.timeout(5) { started.pop }
+      expect(workers.select(&:alive?)).to eq([workers.last])
+      expect($stdout.sync).to be(true)
+      raise Interrupt
+    end
+
+    [false, true].each do |original_sync|
+      output = capture_stdout do
+        $stdout.sync = original_sync
+        command.run
+
+        expect(workers.last).not_to be_alive
+        expect($stdout.sync).to eq(original_sync)
+      end
+      expect(output).to start_with("\e[?25l").and end_with("\e[?25h")
+    end
+    expect(workers.uniq.size).to eq(2)
+  ensure
+    workers&.each { |worker| worker.kill.join }
   end
 
   context 'with offsetting positions' do
@@ -296,7 +393,7 @@ describe SummaryCommand do
 
       output = capture_stdout { run_once(command) }
 
-      expect(output).to include('Position: 0 * 0.0', "Spread:   #{'0'.color_with_number(0)}", 'Balance:  60,000')
+      expect(output).to include('Position: 0 * 0.0', "Spread:   +\e[0;32;49m0\e[0m", 'Balance:  60,000')
     end
   end
 
@@ -337,10 +434,14 @@ describe SummaryCommand do
 
   def capture_stdout
     original = $stdout
-    $stdout = StringIO.new
+    reader, writer = IO.pipe
+    $stdout = writer
     yield
-    $stdout.string
+    writer.close
+    reader.read
   ensure
     $stdout = original
+    writer.close unless writer.closed?
+    reader.close
   end
 end
