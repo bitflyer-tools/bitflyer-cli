@@ -284,6 +284,17 @@ describe 'bitflyer executable', :stop_state do
     end.to output("Could not list executions. Permission denied\n").to_stderr
   end
 
+  { 'open_orders' => [:child_orders, 'child orders'], 'executions' => [:executions, 'executions'] }.each do
+    |command, (lookup, label)|
+    it "escapes terminal controls in the #{command} diagnostic on stderr" do
+      stub_responses(private_client, lookup => { 'status' => -1, 'error_message' => "Denied\r\n\e[2J" })
+
+      expect do
+        expect { run_cli(command) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not list #{label}. Denied\\r\\n\\e[2J\n").to_stderr.and output('').to_stdout
+    end
+  end
+
   context 'with the SDK executions client' do
     before do
       stub_credentials

@@ -20,6 +20,18 @@ describe ExecutionsCommand do
     expect(client).to have_received(:executions).with(product_code: 'FX_BTC_JPY', count: 100, child_order_id: 'JOR-order').once
   end
 
+  it 'escapes terminal controls while preserving ordinary field text' do
+    stub_responses(client, executions: [{
+      'exec_date' => '2025-01-01T00:00:00', 'side' => 'SELL', 'price' => 30_000, 'size' => 0.01,
+      'commission' => 0, 'child_order_id' => "JOR-\r注文\n", 'child_order_acceptance_id' => "JRF-\e[2J\u009B"
+    }])
+
+    expect { described_class.new.run }.to output(<<~'OUTPUT').to_stdout
+      Execution time | Side | Price (JPY) | Size (BTC) | Commission | Child order ID | Acceptance ID
+      2025-01-01T00:00:00 | SELL | 30000 | 0.01 | 0 | JOR-\r注文\n | JRF-\e[2J\u009B
+    OUTPUT
+  end
+
   it 'requests one bounded page of account executions by default' do
     stub_responses(client, executions: [])
 
