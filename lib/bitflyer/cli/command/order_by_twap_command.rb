@@ -118,12 +118,16 @@ class OrderByTWAPCommand
   def accepted_order?(status, body)
     acceptance_id = body['child_order_acceptance_id']
     status.between?(200, 299) && acceptance_id.is_a?(String) && !acceptance_id.strip.empty? &&
-      !exchange_rejection?(body)
+      !exchange_rejection?(body) && !error_message?(body)
   end
 
   def exchange_rejection?(body)
     status = body['status']
+    status.is_a?(Numeric) && status.negative?
+  end
+
+  def error_message?(body)
     message = body['error_message']
-    (status.is_a?(Numeric) && status.negative?) || (message.is_a?(String) && !message.strip.empty?)
+    message.is_a?(String) && !message.strip.empty?
   end
 end

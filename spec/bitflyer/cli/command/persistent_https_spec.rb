@@ -51,6 +51,7 @@ describe 'Persistent exchange HTTPS' do
     'a gateway response with an exchange error body' => [{ 'status' => -200 }, '502 Bad Gateway'],
     'a malformed success response' => ['[', '200 OK'],
     'an empty success response' => ['', '200 OK'],
+    'a success response with only an error message' => [{ 'error_message' => 'Order unavailable' }, '200 OK'],
     'a success response with a blank acceptance ID' => [{ 'child_order_acceptance_id' => ' ' }, '200 OK'],
     'a client error without an exchange rejection' => [{}, '400 Bad Request']
   }.each do |description, (body, status)|
