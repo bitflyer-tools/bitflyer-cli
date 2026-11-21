@@ -7,7 +7,8 @@ require 'bitflyer/cli/model/position'
 module HasHTTPClient
   include Authorization
 
-  class PositionLookupFailed < StandardError; end
+  class AccountLookupFailed < StandardError; end
+  class PositionLookupFailed < AccountLookupFailed; end
   class TickerError < StandardError; end
 
   def http_public_client
@@ -63,8 +64,7 @@ module HasHTTPClient
       return collateral.to_i if !rejected && collateral.is_a?(Numeric) && collateral.finite?
     end
 
-    warn "Failed to look up collateral: #{response.inspect}"
-    nil
+    raise AccountLookupFailed, "Failed to look up collateral: #{response.inspect}"
   end
 
   def fetch_position

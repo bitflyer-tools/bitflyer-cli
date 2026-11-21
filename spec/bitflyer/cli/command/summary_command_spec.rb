@@ -29,12 +29,8 @@ describe SummaryCommand do
       expect(Position).not_to receive(:new)
       expect(Thread).not_to receive(:new)
       expect(Bitflyer::Cli::RealtimeClient).not_to receive(:new)
-      output = capture_stdout do
-        $stdout.sync = false
-        expect { described_class.new.run }.to output(/Failed to look up positions:.*-200.*Invalid API key/).to_stderr
-        expect($stdout.sync).to be(false)
-      end
-      expect(output).to be_empty
+      expect { described_class.new.run }
+        .to raise_error(HasHTTPClient::PositionLookupFailed, /Failed to look up positions:.*-200.*Invalid API key/)
       expect(private_client).not_to have_received(:collateral)
       expect(private_client).to have_received(:close).once
     end
@@ -65,10 +61,7 @@ describe SummaryCommand do
           expect(Thread).not_to receive(:new)
           expect(Bitflyer::Cli::RealtimeClient).not_to receive(:new)
 
-          expect do
-            command = described_class.new
-            expect(capture_stdout { command.run }).not_to include('Balance:')
-          end.to output(error).to_stderr
+          expect { described_class.new.run }.to raise_error(HasHTTPClient::AccountLookupFailed, error)
           expect(private_client).to have_received(:close).once
         end
 
