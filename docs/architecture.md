@@ -15,10 +15,17 @@ invocation to a class in [`lib/bitflyer/cli/command/`](../lib/bitflyer/cli/comma
   shows the HTTP flow. It reads the ticker through the public client and
   submits a limit order through the private client.
 - [`SummaryCommand`](../lib/bitflyer/cli/command/summary_command.rb) combines
-  execution prices from [`HasRealtimeClient`](../lib/bitflyer/cli/has_realtime_client.rb)
+  execution prices from [`Bitflyer::Cli::RealtimeClient`](../lib/bitflyer/cli/realtime_client.rb)
   with positions and collateral from the private HTTP client to render the
   terminal display. The shared [`Position`](../lib/bitflyer/cli/model/position.rb)
   model aggregates position rows and computes profit at a given price.
+
+  Each `SummaryCommand#run` creates a new realtime client, whose constructor
+  starts the WebSocket connection. The command's `subscribe_to_feed` method
+  uses `executions_fx_btc_jpy=` to subscribe to `lightning_executions_FX_BTC_JPY`
+  and `disconnected=` to clear the last price on disconnect. When the run exits,
+  including on Ctrl+C, `restore_display` calls `shutdown` on the client to stop
+  the connection monitor and close the WebSocket.
 
 ## Where to look when making changes
 
