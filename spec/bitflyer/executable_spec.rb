@@ -174,6 +174,24 @@ describe 'bitflyer executable' do
     expect { run_cli('open_orders') }.to output("Child orders\nNone.\nParent strategies\nNone.\n").to_stdout
   end
 
+  %w[child parent].each do |type|
+    {
+      'a non-object record' => nil,
+      'a missing order ID' => {},
+      'a blank order ID' => { "#{type}_order_id" => ' ' },
+      'a non-string order ID' => { "#{type}_order_id" => 123 }
+    }.each do |description, record|
+      it "rejects #{description} in the #{type} orders response without printing rows" do
+        responses = { child_orders: [{ 'child_order_id' => 'JOR-order' }], parent_orders: [] }
+        stub_responses(private_client, **responses.merge(:"#{type}_orders" => [record]))
+
+        expect do
+          expect { run_cli('open_orders') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output('').to_stdout.and output("Could not list #{type} orders. Unexpected response from bitFlyer.\n").to_stderr
+      end
+    end
+  end
+
   it 'routes executions with a TWAP acceptance ID through the CLI' do
     stub_responses(private_client, executions: [])
 

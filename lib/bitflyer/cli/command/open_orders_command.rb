@@ -20,11 +20,19 @@ class OpenOrdersCommand
   private
 
   def order_rows(orders, type, &)
-    return orders.map(&) if orders.is_a?(Array)
+    id_key = "#{type}_order_id"
+    return orders.map(&) if orders.is_a?(Array) && orders.all? { |order| valid_order?(order, id_key) }
 
     message = orders['error_message'].to_s if orders.is_a?(Hash)
     detail = message.to_s.empty? ? 'Unexpected response from bitFlyer.' : message
     raise LookupFailed, "Could not list #{type} orders. #{detail}"
+  end
+
+  def valid_order?(order, id_key)
+    return false unless order.is_a?(Hash)
+
+    id = order[id_key]
+    id.is_a?(String) && !id.strip.empty?
   end
 
   def child_row(order)
