@@ -205,8 +205,12 @@ describe 'bitflyer executable' do
     end.to output("Set the required environment variables: BITFLYER_API_SECRET\n").to_stderr
   end
 
-  ['<html>Bad Gateway</html>', ''].each do |body|
-    it "reports an HTTP 502 with #{body.empty? ? 'an empty body' : 'an HTML body'} as unverified" do
+  {
+    'an HTML body' => '<html>Bad Gateway</html>',
+    'an empty body' => '',
+    'a negative-status JSON body' => JSON.generate(status: -1, error_message: 'Bad Gateway')
+  }.each do |description, body|
+    it "reports an HTTP 502 with #{description} as unverified" do
       stub_credentials
       stub_cancellation_response('502', body)
 
