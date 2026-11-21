@@ -64,8 +64,11 @@ module Bitflyer
       method_option :type, aliases: 't', type: :string, banner: 'buy/sell', required: true
       method_option :number_of_times, aliases: 'n', type: :numeric, banner: 'N', required: true
       method_option :interval, aliases: 'i', type: :numeric, banner: 'second', required: true
+      method_option :dry_run, type: :boolean, desc: 'Preview the order plan without submitting'
       def order_by_twap
         counts = OrderByTWAPCommand.new.run(options)
+        return if options[:dry_run]
+
         exit 1 if counts[:rejected].positive? || counts[:unverified].positive?
       end
 
@@ -80,6 +83,7 @@ module Bitflyer
       method_option :type, aliases: 't', type: :string, banner: 'buy/sell', required: true
       method_option :range, aliases: 'r', type: :numeric, banner: 'price range', required: true
       method_option :percentage, aliases: 'p', type: :numeric, banner: 'price ratio percentage', required: true
+      method_option :dry_run, type: :boolean, desc: 'Preview the order plan without submitting'
       def ifdoco_by_range
         IFDOCOByRangeCommand.new.run(options)
       end

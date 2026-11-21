@@ -18,6 +18,8 @@ class IFDOCOByRangeCommand
     current_price = fetch_ticker_price('ltp')
     profit_price, loss_price = exit_prices(side: side, current_price: current_price, range: range, ratio: ratio)
     request = request(side: side, size: size, profit_price: profit_price, loss_price: loss_price)
+    return print_preview(current_price, request.fetch(:parameters)) if options[:dry_run]
+
     response = http_private_client.send_parent_order(**request)
 
     Bitflyer::Cli::OrderRejected.check!(response, 'parent_order_acceptance_id')
@@ -58,6 +60,15 @@ class IFDOCOByRangeCommand
     puts "Send market order #{market[:side]} / #{market[:size].to_f}"
     puts "Set limit order #{limit[:side]} / #{limit[:price]} / #{limit[:size].to_f}"
     puts "Set stop order #{stop[:side]} / #{stop[:trigger_price]} / #{stop[:size].to_f}"
+  end
+
+  def print_preview(current_price, parameters)
+    market, limit, stop = parameters
+    puts 'IFDOCO dry run (FX_BTC_JPY)'
+    puts "Reference price: #{current_price} JPY"
+    puts "Market entry: #{market[:side]} #{market[:size]} BTC"
+    puts "Take-profit limit: #{limit[:side]} #{limit[:size]} BTC at #{limit[:price]} JPY"
+    puts "Stop trigger: #{stop[:side]} #{stop[:size]} BTC at #{stop[:trigger_price]} JPY"
   end
 
   def request(side:, size:, profit_price:, loss_price:) # rubocop:disable Metrics/MethodLength
