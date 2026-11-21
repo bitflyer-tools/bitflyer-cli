@@ -25,7 +25,7 @@ class Position
   end
 
   def average
-    flat? ? 0 : (@signed_entry_value / size).to_i
+    flat? ? 0.to_d : @signed_entry_value / size
   end
 
   def flat?

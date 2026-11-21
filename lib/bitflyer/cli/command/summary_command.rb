@@ -111,7 +111,7 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
 
   def frame(account_snapshot, price)
     position, balance, stale = account_snapshot
-    average = position.average
+    average = position.average.to_i
     values = price ? marked_values(price, position, balance, average) : "Spread:   N/A\nBalance:  N/A (N/A)"
     <<~EOS
       \e[4F\e[0JCurrent:  #{price ? group_digits(price.to_i) : 'Stale'}

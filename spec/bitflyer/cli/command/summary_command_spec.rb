@@ -22,6 +22,20 @@ describe SummaryCommand do
     run_iterations(command)
   end
 
+  it 'creates, subscribes, and shuts down a separate execution feed for each run' do
+    second_client = instance_double(Bitflyer::Cli::RealtimeClient)
+    command = described_class.new
+
+    [realtime_client, second_client].each do |client|
+      expect(Bitflyer::Cli::RealtimeClient).to receive(:new).ordered.and_return(client)
+      expect(client).to receive(:disconnected=).with(an_instance_of(Proc)).ordered
+      expect(client).to receive(:executions_fx_btc_jpy=).with(an_instance_of(Proc)).ordered
+      expect(client).to receive(:shutdown).ordered
+    end
+
+    capture_stdout { 2.times { run_once(command) } }
+  end
+
   context 'when the initial position lookup is rejected' do
     let(:positions) { { 'status' => -200, 'error_message' => 'Invalid API key' } }
 
@@ -426,6 +440,18 @@ describe SummaryCommand do
     expect(workers.uniq.size).to eq(2)
   ensure
     workers&.each { |worker| worker.kill.join }
+  end
+
+  context 'with a fractional short break-even price' do
+    let(:positions) do
+      [position(side: 'SELL', price: 10_000, size: 0.01), position(side: 'SELL', price: 10_001, size: 0.03)]
+    end
+
+    it 'displays the position price in whole yen' do
+      output = capture_stdout { run_once(described_class.new) }
+
+      expect(output).to include("Position: 10,000 * -0.04\n")
+    end
   end
 
   context 'with offsetting positions' do

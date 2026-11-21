@@ -72,6 +72,78 @@ describe 'Persistent exchange HTTPS' do
     end
   end
 
+  context 'when looking up a protective stop', :stop_state do
+    let(:position_rows) { [position(side: 'BUY', price: 1_000_000, size: 0.1)] }
+    let(:parent_orders) do
+      %w[JCO-first JCO-second].map { |id| { parent_order_id: id, parent_order_type: 'STOP' } }
+    end
+    let(:stop_submission_path) { '/v1/me/sendparentorder' }
+    let(:lookup_requests) do
+      [
+        [1, 'GET', positions_path],
+        [1, 'GET', positions_path],
+        [1, 'GET', '/v1/me/getparentorders?product_code=FX_BTC_JPY&count=100&parent_order_state=ACTIVE'],
+        [1, 'GET', '/v1/me/getparentorder?parent_order_id=JCO-first'],
+        [1, 'GET', '/v1/me/getparentorder?parent_order_id=JCO-second']
+      ]
+    end
+
+    it 'checks positions and multiple candidates and submits on one TLS connection' do
+      start_stop_server
+
+      expect { run_stop }.to output(/Set stop order/).to_stdout
+
+      expect_stop_requests(lookup_requests + [[1, 'POST', stop_submission_path]])
+      expect_signed_requests
+    end
+
+    it 'closes the connection without submitting when a matching stop exists' do
+      start_stop_server(second_detail: stop_detail(995_000))
+
+      expect { run_stop }.to output(/Existing stop order.*JCO-second/).to_stdout
+
+      expect_stop_requests(lookup_requests)
+    end
+
+    it 'closes the connection without submitting when a detail lookup fails' do
+      start_stop_server(second_detail: { status: -200 })
+
+      expect { run_stop }.to raise_error(StopByRangeCommand::LookupFailed, /JCO-second/)
+
+      expect_stop_requests(lookup_requests)
+    end
+
+    it 'does not replay a submission whose response is lost' do
+      start_stop_server(submission: nil)
+
+      expect { run_stop }.to raise_error(Bitflyer::Cli::StopSubmission::Unverified, /communication error/)
+
+      expect_stop_requests(lookup_requests + [[1, 'POST', stop_submission_path]])
+    end
+
+    def run_stop
+      StopByRangeCommand.new.run(thor_options(range: 5000))
+    end
+
+    def stop_detail(trigger_price)
+      {
+        order_method: 'SIMPLE',
+        parameters: [{ product_code: 'FX_BTC_JPY', condition_type: 'STOP', side: 'SELL', trigger_price: trigger_price,
+                       size: 0.1 }]
+      }
+    end
+
+    def start_stop_server(second_detail: stop_detail(990_000), submission: { parent_order_acceptance_id: 'accepted' })
+      responses = [position_rows, position_rows, parent_orders, stop_detail(980_000), second_detail, submission]
+      start_server { |_path, number| [responses.fetch(number - 1, submission), false] }
+    end
+
+    def expect_stop_requests(requests)
+      expect(closed_connection).to eq(1)
+      expect(@server.requests.map { |id, method, path| [id, method, path] }).to eq(requests)
+    end
+  end
+
   it 'uses one TLS connection for startup and multiple summary refreshes and closes it on interrupt' do
     start_server { |path| [path == positions_path ? [] : { collateral: 50_000 }, false] }
     feed = stub_realtime_client
@@ -144,7 +216,7 @@ describe 'Persistent exchange HTTPS' do
   end
 
   def json_response(payload)
-    instance_double(Net::HTTPOK, body: JSON.generate(payload))
+    instance_double(Net::HTTPOK, code: '200', body: JSON.generate(payload))
   end
 
   def run_twap(command, slices)

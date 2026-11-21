@@ -11,6 +11,11 @@ module Bitflyer
         @connection = Connection.new(key, secret)
       end
 
+      def child_order_by_acceptance_id(product_code:, child_order_acceptance_id:)
+        query = { product_code: product_code, child_order_acceptance_id: child_order_acceptance_id }
+        @connection.get('/v1/me/getchildorders', query).body
+      end
+
       def close
         @connection.close
       end
@@ -30,13 +35,20 @@ module Bitflyer
           # Net::HTTP reconnects before sending when it detects a closed socket.
           # Its transport retries apply only to idempotent methods, excluding POST.
           response = @http.request(request)
+          parse_response(request, response)
+        end
+
+        def parse_response(request, response)
           body = response.body
-          raise Net::HTTPBadResponse, "Empty HTTP response body (status #{response.code})" if body.nil? || body.empty?
+          status = response.code.to_i
+          raise Net::HTTPBadResponse, "Empty HTTP response body (status #{status})" if body.to_s.empty?
 
           parsed_body = parse_body(body)
-          return parsed_body unless request.is_a?(Net::HTTP::Post)
+          return PostResponse.new(status, parsed_body) if request.is_a?(Net::HTTP::Post)
 
-          PostResponse.new(response.code.to_i, parsed_body)
+          return parsed_body if status.between?(200, 299)
+
+          raise Net::HTTPBadResponse, "HTTP request failed (status #{status})"
         end
       end
       private_constant :Connection

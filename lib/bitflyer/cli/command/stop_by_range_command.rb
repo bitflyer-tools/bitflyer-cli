@@ -5,8 +5,10 @@ require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/stop_submission'
 
-class StopByRangeCommand
+class StopByRangeCommand # rubocop:disable Metrics/ClassLength
   include HasHTTPClient
+
+  alias http_private_client persistent_http_client
 
   class LookupFailed < StandardError; end
 
@@ -76,10 +78,20 @@ class StopByRangeCommand
     return unless size
 
     side = position.size.positive? ? 'SELL' : 'BUY'
-    price = position.average + (range * (side == 'BUY' ? 1.0 : -1.0))
-    raise Thor::Error, 'Stop trigger price must be positive and finite.' unless price.finite? && price.positive?
+    trigger_price = stop_trigger_price(position.average, range, side)
+    { product_code: PRODUCT_CODE, condition_type: 'STOP', side: side, trigger_price: trigger_price, size: size }
+  end
 
-    { product_code: PRODUCT_CODE, condition_type: 'STOP', side: side, trigger_price: price, size: size }
+  def stop_trigger_price(average, range, side)
+    offset = range.to_s.to_d
+    price = side == 'BUY' ? average + offset : average - offset
+    if price.finite?
+      # Round away from break-even to preserve the requested minimum distance.
+      trigger = (side == 'BUY' ? price.ceil : price.floor).to_f
+      return trigger if trigger.finite? && trigger.positive?
+    end
+
+    raise Thor::Error, 'Stop trigger price must be positive and finite.'
   end
 
   def find_parent_order(state, &match_order)
@@ -131,7 +143,7 @@ class StopByRangeCommand
 
   def submit_stop(stop, description, submission)
     submission.submit(ACCEPTANCE_ID) do
-      persistent_http_client.send_parent_order(order_method: 'SIMPLE', parameters: [stop])
+      http_private_client.send_parent_order(order_method: 'SIMPLE', parameters: [stop])
     end
     puts "Set stop order #{description}"
   end

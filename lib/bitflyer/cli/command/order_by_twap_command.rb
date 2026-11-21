@@ -46,7 +46,7 @@ class OrderByTWAPCommand
   end
 
   def validate_interval!(interval)
-    raise Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.' if interval.negative?
+    raise Thor::MalformattedArgumentError, '--interval must be finite and >= 0' unless interval.finite? && interval >= 0
   end
 
   def submit_on_schedule(number, interval)

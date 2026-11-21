@@ -29,12 +29,18 @@ class ExecutionsCommand
 
   def fetch_executions(filters)
     response = http_private_client.executions(product_code: 'FX_BTC_JPY', count: PAGE_SIZE, **filters)
-    return response if response.is_a?(Array) && response.all?(Hash)
+    return response if response.is_a?(Array) && response.all? { |execution| complete_execution?(execution) }
 
     message = response['error_message'].to_s if response.is_a?(Hash)
     detail = message.to_s.empty? ? 'Unexpected response from bitFlyer.' : message
     raise LookupFailed, "Could not list executions. #{Bitflyer::Cli::TerminalText.escape(detail)}"
   rescue SocketError, SystemCallError, IOError, Timeout::Error, OpenSSL::SSL::SSLError, TypeError => e
     raise LookupFailed, "Could not list executions. #{Bitflyer::Cli::TerminalText.escape(e.message)}"
+  end
+
+  def complete_execution?(execution)
+    return false unless execution.is_a?(Hash)
+
+    execution.values_at(*FIELDS).all? { |value| !value.nil? && !(value.is_a?(String) && value.strip.empty?) }
   end
 end

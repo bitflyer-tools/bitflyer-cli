@@ -37,6 +37,9 @@ bitflyer summary
 
 Press `Ctrl+C` to exit the live display.
 
+See [Getting started](docs/getting-started.md) for a walkthrough of the
+summary display and open orders.
+
 ## Usage
 
 ```
@@ -73,6 +76,24 @@ cannot trigger a duplicate order with the same parameters. If a new position
 needs a stop with those same parameters, verify the new position and the old
 stop's completion in bitFlyer, then remove the completed record at the path
 shown by the CLI while no `stop_by_range` commands are running.
+
+### Offset a position
+
+`bitflyer counter_trade` coordinates runs for each product on the same machine
+when they share an OS account and state directory. The command saves a record
+under `$XDG_STATE_HOME/bitflyer-cli/counter-trades` (default
+`~/.local/state/bitflyer-cli/counter-trades`) before sending the market order.
+A later run uses the original API key to check the previous order and waits for
+the position to reflect its fills before sizing another offset. While a record
+is pending, runs using other API keys are blocked for that product as well.
+
+If the CLI cannot confirm acceptance, the final order state, or the resulting
+exposure, it exits with status 1 and shows the record path. Retry to check the
+order and position again. If automatic reconciliation cannot complete, check
+in bitFlyer that the order was never accepted or is no longer live and that
+the current position reflects all fills. Once confirmed, remove the JSON record
+at the displayed path while no `counter_trade` commands are running. Keep the
+`.lock` file in place.
 
 ### List and cancel open orders
 

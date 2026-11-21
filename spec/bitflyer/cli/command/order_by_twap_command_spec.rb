@@ -54,9 +54,10 @@ describe OrderByTWAPCommand do
     expect(command).to have_received(:sleep).twice
   end
 
-  it 'rejects a negative interval before submitting any orders' do
-    expect { run(interval: -1) }.to raise_error(Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.')
-    expect(private_client).not_to have_received(:send_child_order)
+  it 'submits every order without waiting when the interval is zero' do
+    expect { run(interval: 0) }.to output(/3 accepted/).to_stdout
+    expect(submission_times).to eq([0, 2, 4])
+    expect(command).not_to have_received(:sleep)
   end
 
   context 'when a request misses several submission deadlines' do
