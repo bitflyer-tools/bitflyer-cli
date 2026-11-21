@@ -1,7 +1,7 @@
 require 'spec_helper'
 require 'open3'
 
-describe 'bitflyer executable' do
+describe 'bitflyer executable', :stop_state do
   let(:private_client) { stub_private_client }
 
   def run_bitflyer(*args)

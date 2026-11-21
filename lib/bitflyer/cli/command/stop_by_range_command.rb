@@ -2,6 +2,7 @@
 
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/order_rejected'
+require 'bitflyer/cli/stop_submission'
 
 class StopByRangeCommand
   include HasHTTPClient
@@ -10,6 +11,8 @@ class StopByRangeCommand
 
   PRODUCT_CODE = 'FX_BTC_JPY'
   PAGE_SIZE = 100
+  TERMINAL_STATES = %w[CANCELED EXPIRED REJECTED COMPLETED].freeze
+  ACCEPTANCE_ID = 'parent_order_acceptance_id'
 
   def run(options)
     raise ArgumentError, 'Range must be positive' unless options.range.positive?
@@ -21,14 +24,42 @@ class StopByRangeCommand
     stop = stop_parameters(position, options.range)
     return unless stop
 
-    order_id = existing_stop_id(stop)
-    description = stop.values_at(:side, :trigger_price, :size).join(' / ')
-    return puts "Existing stop order #{description} (#{order_id})" if order_id
-
-    submit_stop(stop, description)
+    submission = Bitflyer::Cli::StopSubmission.new(api_key, stop)
+    submission.synchronize { place_stop(stop, submission) }
   end
 
   private
+
+  def place_stop(stop, submission)
+    pending = submission.pending
+    description = stop.values_at(:side, :trigger_price, :size).join(' / ')
+    if (order = find_parent_order('ACTIVE') { |entry| matching_stop?(entry, stop) })
+      submission.clear if pending && order[ACCEPTANCE_ID] == pending
+      return puts "Existing stop order #{description} (#{order.fetch('parent_order_id')})"
+    end
+
+    return if pending && pending_stop?(submission, pending, description)
+
+    submit_stop(stop, description, submission)
+  end
+
+  def pending_stop?(submission, pending, description)
+    state = terminal_state(pending)
+    submission.clear if state
+    return false if state && state != 'COMPLETED'
+
+    puts "Previous stop order #{description} (#{pending}): #{state || 'awaiting confirmation'}"
+    puts "Unverified submission record: #{submission.path}" if pending == Bitflyer::Cli::StopSubmission::UNVERIFIED
+    true
+  end
+
+  def terminal_state(pending)
+    return if pending == Bitflyer::Cli::StopSubmission::UNVERIFIED
+
+    TERMINAL_STATES.find do |state|
+      find_parent_order(state) { |order| order[ACCEPTANCE_ID] == pending }
+    end
+  end
 
   def stop_parameters(position, range)
     size = position_order_size(position)
@@ -44,12 +75,12 @@ class StopByRangeCommand
     }
   end
 
-  def existing_stop_id(stop)
+  def find_parent_order(state, &match_order)
     before = nil
     loop do
-      orders = active_parent_orders(before)
-      match = orders.find { |order| matching_stop?(order, stop) }
-      return match.fetch('parent_order_id') if match
+      orders = parent_orders(state, before)
+      match = orders.find(&match_order)
+      return match if match
       return if orders.size < PAGE_SIZE
 
       before = next_cursor(orders, before)
@@ -66,13 +97,13 @@ class StopByRangeCommand
     raise LookupFailed, 'Could not paginate active parent orders.'
   end
 
-  def active_parent_orders(before)
+  def parent_orders(state, before)
     orders = http_private_client.parent_orders(
-      product_code: PRODUCT_CODE, parent_order_state: 'ACTIVE', count: PAGE_SIZE, before: before
+      product_code: PRODUCT_CODE, parent_order_state: state, count: PAGE_SIZE, before: before
     )
     return orders if orders.is_a?(Array)
 
-    raise LookupFailed, "Failed to look up active parent orders: #{orders.inspect}"
+    raise LookupFailed, "Failed to look up #{state.downcase} parent orders: #{orders.inspect}"
   end
 
   def matching_stop?(order, stop)
@@ -91,9 +122,15 @@ class StopByRangeCommand
     raise LookupFailed, "Failed to look up parent order #{order_id}: #{detail.inspect}"
   end
 
-  def submit_stop(stop, description)
+  def submit_stop(stop, description, submission)
+    submission.record(Bitflyer::Cli::StopSubmission::UNVERIFIED)
     response = http_private_client.send_parent_order(order_method: 'SIMPLE', parameters: [stop])
-    Bitflyer::Cli::OrderRejected.check!(response, 'parent_order_acceptance_id')
+    if response.is_a?(Hash) && response[ACCEPTANCE_ID].nil? && response['status'].is_a?(Integer) &&
+       response['status'].negative?
+      submission.clear
+    end
+    Bitflyer::Cli::OrderRejected.check!(response, ACCEPTANCE_ID)
+    submission.record(response.fetch(ACCEPTANCE_ID).to_s)
     puts "Set stop order #{description}"
   end
 end

@@ -1,6 +1,7 @@
 require 'spec_helper'
+require 'timeout'
 
-describe StopByRangeCommand do
+describe StopByRangeCommand, :stop_state do
   subject(:run_command) { run }
 
   let!(:private_client) { stub_private_client }
@@ -61,6 +62,73 @@ describe StopByRangeCommand do
         .with(stop_order(side: 'SELL', trigger_price: 995_000.0, size: 0.2))
     end
 
+    it 'submits only once when another invocation starts before acceptance is visible' do
+      first = second = nil
+      posting = Queue.new
+      continue_post = Queue.new
+      second_position = Queue.new
+      allow(private_client).to receive(:positions) do
+        second_position << true if Thread.current[:second_stop_run]
+        positions
+      end
+      allow(private_client).to receive(:send_parent_order) do
+        if !Thread.current[:second_stop_run]
+          posting << true
+          continue_post.pop
+        end
+        response
+      end
+
+      expect do
+        Timeout.timeout(5) do
+          first = Thread.new { run }
+          posting.pop
+          second = Thread.new do
+            Thread.current[:second_stop_run] = true
+            run
+          end
+          second_position.pop
+          continue_post << true
+          [first, second].each(&:value)
+        end
+      end.to output(/Set stop order.*awaiting confirmation/m).to_stdout
+      expect(private_client).to have_received(:send_parent_order).once
+    ensure
+      [first, second].compact.each { |thread| thread.kill.join }
+    end
+
+    it 'allows replacement after the accepted stop is canceled' do
+      expect { run }.to output(/Set stop order/).to_stdout
+      allow(private_client).to receive(:parent_orders)
+        .with(hash_including(parent_order_state: 'CANCELED')).and_return([response])
+
+      expect { run }.to output(/Set stop order/).to_stdout
+      expect(private_client).to have_received(:send_parent_order).twice
+    end
+
+    it 'does not replace a completed stop using the current position snapshot' do
+      expect { run }.to output(/Set stop order/).to_stdout
+      allow(private_client).to receive(:parent_orders)
+        .with(hash_including(parent_order_state: 'COMPLETED')).and_return([response])
+
+      expect { run }.to output(/Previous stop order.*COMPLETED/).to_stdout
+      expect(private_client).to have_received(:send_parent_order).once
+    end
+
+    it 'allows stops with different parameters while acceptance is pending' do
+      expect { run }.to output(/Set stop order/).to_stdout
+      expect { run(6000) }.to output(/Set stop order SELL \/ 994000/).to_stdout
+      expect(private_client).to have_received(:send_parent_order).twice
+    end
+
+    it 'keeps the stop pending after a transport failure' do
+      allow(private_client).to receive(:send_parent_order).and_raise(Timeout::Error)
+      expect { run }.to raise_error(Timeout::Error)
+
+      expect { run }.to output(/unverified.*awaiting confirmation/).to_stdout
+      expect(private_client).to have_received(:send_parent_order).once
+    end
+
     context 'with active parent orders' do
       let(:parent) { { 'id' => 1, 'parent_order_id' => 'JCO-stop', 'parent_order_type' => 'STOP' } }
       let(:parameters) do
@@ -76,7 +144,7 @@ describe StopByRangeCommand do
 
       it 'submits once and reports the existing stop on the next invocation' do
         expect { run }.to output(/Set stop order/).to_stdout
-        stub_responses(private_client, parent_orders: [parent])
+        stub_responses(private_client, parent_orders: [parent.merge(response)])
         stub_parent_detail
 
         expect { run }.to output("Existing stop order SELL / 995000.0 / 0.2 (JCO-stop)\n").to_stdout
@@ -84,6 +152,10 @@ describe StopByRangeCommand do
           .with(product_code: 'FX_BTC_JPY', parent_order_state: 'ACTIVE', count: 100, before: nil).twice
         expect(private_client).to have_received(:parent_order).with(parent_order_id: 'JCO-stop')
         expect(private_client).to have_received(:send_parent_order).once
+
+        stub_responses(private_client, parent_orders: [])
+        expect { run }.to output(/Set stop order/).to_stdout
+        expect(private_client).to have_received(:send_parent_order).twice
       end
 
       it 'checks subsequent pages for a matching stop' do
@@ -136,6 +208,8 @@ describe StopByRangeCommand do
 
       it 'raises with the exchange rejection' do
         expect { run }.to raise_error(Bitflyer::Cli::OrderRejected, 'Order rejected')
+        stub_responses(private_client, send_parent_order: { 'parent_order_acceptance_id' => 'accepted' })
+        expect { run }.to output(/Set stop order/).to_stdout
       end
     end
   end
