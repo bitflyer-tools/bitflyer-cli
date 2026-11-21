@@ -8,6 +8,8 @@ require 'bitflyer/cli/stop_submission'
 class StopByRangeCommand
   include HasHTTPClient
 
+  alias http_private_client persistent_http_client
+
   class LookupFailed < StandardError; end
 
   PRODUCT_CODE = 'FX_BTC_JPY'
@@ -131,7 +133,7 @@ class StopByRangeCommand
 
   def submit_stop(stop, description, submission)
     submission.submit(ACCEPTANCE_ID) do
-      persistent_http_client.send_parent_order(order_method: 'SIMPLE', parameters: [stop])
+      http_private_client.send_parent_order(order_method: 'SIMPLE', parameters: [stop])
     end
     puts "Set stop order #{description}"
   end

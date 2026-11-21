@@ -36,6 +36,7 @@ describe 'bitflyer executable', :stop_state do
   end
 
   it 'prints a protective stop lookup failure to stderr and exits unsuccessfully without placing an order' do
+    private_client = stub_persistent_client
     positions = [position(side: 'BUY', price: 1_000_000, size: 0.2)]
     stub_responses(private_client, positions: positions, parent_orders: { 'status' => -200 }, send_parent_order: {})
 
@@ -51,6 +52,8 @@ describe 'bitflyer executable', :stop_state do
     %w[stop_by_range --range=5000] => "You don't have any position now.\n"
   }.each do |args, flat_message|
     context "when #{args.first} reads positions" do
+      let(:private_client) { args.first == 'stop_by_range' ? stub_persistent_client : stub_private_client }
+
       before do
         stub_responses(private_client, positions: positions, send_child_order: {}, send_parent_order: {})
       end
@@ -433,8 +436,10 @@ describe 'bitflyer executable', :stop_state do
     before do
       positions = [position(side: 'BUY', price: 1_000_000, size: 0.1)]
       stub_credentials
-      client = instance_double(Bitflyer::HTTP::Private::Client, positions: positions, parent_orders: [])
-      allow(Bitflyer).to receive(:http_private_client).with('key', 'secret').and_return(client)
+      allow(transport).to receive(:request).with(an_object_having_attributes(path: %r{\A/v1/me/getpositions\?}))
+                                           .and_return(instance_double(Net::HTTPOK, body: positions.to_json))
+      allow(transport).to receive(:request).with(an_object_having_attributes(path: %r{\A/v1/me/getparentorders\?}))
+                                           .and_return(instance_double(Net::HTTPOK, body: '[]'))
       allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true, keep_alive_timeout: 30)
                                        .and_return(transport)
     end
@@ -442,7 +447,7 @@ describe 'bitflyer executable', :stop_state do
     it 'prints a definitive exchange rejection to stderr and exits unsuccessfully' do
       response = instance_double(Net::HTTPBadRequest, code: '400',
                                   body: '{"status":-205,"error_message":"Insufficient margin"}')
-      allow(transport).to receive(:request).and_return(response)
+      allow(transport).to receive(:request).with(parent_submission_request).and_return(response)
 
       expect do
         expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -451,7 +456,7 @@ describe 'bitflyer executable', :stop_state do
 
     it 'reports successful acceptance' do
       response = instance_double(Net::HTTPOK, code: '200', body: '{"parent_order_acceptance_id":"accepted"}')
-      allow(transport).to receive(:request).and_return(response)
+      allow(transport).to receive(:request).with(parent_submission_request).and_return(response)
 
       expect { run_cli(*args) }.to output(/Set stop order/).to_stdout.and output('').to_stderr
     end
@@ -462,10 +467,10 @@ describe 'bitflyer executable', :stop_state do
     }.each do |failure, message|
       it "reports an unverified stop and exits unsuccessfully after #{failure} and on retry" do
         if failure == 'a read timeout'
-          allow(transport).to receive(:request).and_raise(Net::ReadTimeout)
+          allow(transport).to receive(:request).with(parent_submission_request).and_raise(Net::ReadTimeout)
         else
           response = instance_double(Net::HTTPServiceUnavailable, code: '503', body: '{"status":-205}')
-          allow(transport).to receive(:request).and_return(response)
+          allow(transport).to receive(:request).with(parent_submission_request).and_return(response)
         end
 
         [message, /unverified.*awaiting confirmation/].each do |diagnostic|
@@ -475,13 +480,16 @@ describe 'bitflyer executable', :stop_state do
             .to_stderr.and output('').to_stdout
         end
 
-        expect(transport).to have_received(:request)
-          .with(an_object_having_attributes(path: '/v1/me/sendparentorder')).once
+        expect(transport).to have_received(:request).with(parent_submission_request).once
       end
     end
 
     def record_path
       %r{#{Regexp.escape(@stop_state_directory)}/[0-9a-f]{64}}
+    end
+
+    def parent_submission_request
+      an_object_having_attributes(path: '/v1/me/sendparentorder')
     end
   end
 
