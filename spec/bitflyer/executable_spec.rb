@@ -452,17 +452,32 @@ describe 'bitflyer executable', :stop_state do
       expect { run_cli(*args) }.to output(/Set stop order/).to_stdout.and output('').to_stderr
     end
 
-    it 'keeps a stop pending after HTTP 503 even when the body reports an exchange rejection' do
-      response = instance_double(Net::HTTPServiceUnavailable, code: '503', body: '{"status":-205}')
-      allow(transport).to receive(:request).and_return(response)
+    {
+      'HTTP 503 with an exchange rejection body' => /HTTP 503/,
+      'a read timeout' => /communication error/
+    }.each do |failure, message|
+      it "reports an unverified stop and exits unsuccessfully after #{failure} and on retry" do
+        if failure == 'a read timeout'
+          allow(transport).to receive(:request).and_raise(Net::ReadTimeout)
+        else
+          response = instance_double(Net::HTTPServiceUnavailable, code: '503', body: '{"status":-205}')
+          allow(transport).to receive(:request).and_return(response)
+        end
 
-      expect do
-        expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-      end.to output("Could not verify stop order acceptance (HTTP 503).\n").to_stderr.and output('').to_stdout
+        [message, /unverified.*awaiting confirmation/].each do |diagnostic|
+          expect do
+            expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+          end.to output(/#{diagnostic}.*Check the order in bitFlyer before retrying.*record at:\n#{record_path}\n/m)
+            .to_stderr.and output('').to_stdout
+        end
 
-      expect { run_cli(*args) }.to output(/unverified.*awaiting confirmation/).to_stdout
-      expect(transport).to have_received(:request)
-        .with(an_object_having_attributes(path: '/v1/me/sendparentorder')).once
+        expect(transport).to have_received(:request)
+          .with(an_object_having_attributes(path: '/v1/me/sendparentorder')).once
+      end
+    end
+
+    def record_path
+      %r{#{Regexp.escape(@stop_state_directory)}/[0-9a-f]{64}}
     end
   end
 

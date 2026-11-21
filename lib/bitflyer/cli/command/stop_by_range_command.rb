@@ -52,9 +52,12 @@ class StopByRangeCommand
     id, state = submission.reconcile(pending) { terminal_state(pending) }
     return false if state && state != 'COMPLETED'
 
+    if id == Bitflyer::Cli::StopSubmission::UNVERIFIED
+      submission.raise_unverified("Stop order #{description} is unverified and awaiting confirmation.")
+    end
+
     puts "Previous stop order #{description} (#{id}): #{state || 'awaiting confirmation'}"
     puts "Completed submission record: #{submission.path}" if state == 'COMPLETED'
-    puts "Unverified submission record: #{submission.path}" if id == Bitflyer::Cli::StopSubmission::UNVERIFIED
     true
   end
 
@@ -124,9 +127,9 @@ class StopByRangeCommand
   end
 
   def submit_stop(stop, description, submission)
-    submission.record(Bitflyer::Cli::StopSubmission::UNVERIFIED)
-    response = persistent_http_client.send_parent_order(order_method: 'SIMPLE', parameters: [stop])
-    submission.record_response(response, ACCEPTANCE_ID)
+    submission.submit(ACCEPTANCE_ID) do
+      persistent_http_client.send_parent_order(order_method: 'SIMPLE', parameters: [stop])
+    end
     puts "Set stop order #{description}"
   end
 end

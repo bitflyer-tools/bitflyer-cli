@@ -55,6 +55,25 @@ module Bitflyer
         [acceptance_id, state]
       end
 
+      def submit(acceptance_key, &)
+        record(UNVERIFIED)
+        record_response(receive_response(&), acceptance_key)
+      end
+
+      def raise_unverified(message)
+        raise Unverified, "#{message}\nCheck the order in bitFlyer before retrying. " \
+                          "Once you confirm the outcome, remove the unverified submission record at:\n#{path}"
+      end
+
+      private
+
+      def receive_response
+        yield
+      rescue Timeout::Error, SocketError, SystemCallError, IOError,
+             OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError
+        raise_unverified('Could not verify stop order acceptance due to a communication error.')
+      end
+
       def record(value)
         Tempfile.create('pending-', File.dirname(@path)) do |file|
           file.write(value)
@@ -75,14 +94,12 @@ module Bitflyer
         return record(acceptance_id) if status.between?(200, 299) &&
                                         acceptance_id.is_a?(String) && !acceptance_id.strip.empty?
 
-        raise Unverified, "Could not verify stop order acceptance (HTTP #{status})."
+        raise_unverified("Could not verify stop order acceptance (HTTP #{status}).")
       end
 
       def clear
         File.unlink(@path)
       end
-
-      private
 
       def definite_rejection?(status, body)
         verifiable = status.between?(200, 299) || (status.between?(400, 499) && status != 408)

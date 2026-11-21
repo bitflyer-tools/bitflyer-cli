@@ -173,9 +173,9 @@ describe StopByRangeCommand, :stop_state do
 
     it 'keeps the stop pending after a transport failure' do
       allow(private_client).to receive(:send_parent_order).and_raise(Timeout::Error)
-      expect { run }.to raise_error(Timeout::Error)
+      expect { run }.to raise_error(Bitflyer::Cli::StopSubmission::Unverified, /communication error/)
 
-      expect { run }.to output(/unverified.*awaiting confirmation/).to_stdout
+      expect { run }.to raise_error(Bitflyer::Cli::StopSubmission::Unverified, /unverified.*awaiting confirmation/)
       expect(private_client).to have_received(:send_parent_order).once
     end
 
