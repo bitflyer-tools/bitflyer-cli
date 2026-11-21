@@ -284,6 +284,35 @@ describe 'bitflyer executable', :stop_state do
     end.to output("Could not list executions. Permission denied\n").to_stderr
   end
 
+  context 'when the executions page contains an incomplete fill' do
+    let(:fill) do
+      {
+        'exec_date' => '2025-01-01T00:00:00.123', 'side' => 'SELL', 'price' => 30_000, 'size' => 0.01,
+        'commission' => 0, 'child_order_id' => 'JOR-order', 'child_order_acceptance_id' => 'JRF-accepted'
+      }
+    end
+
+    {
+      'an empty object' => {},
+      'a missing acceptance ID' => :missing,
+      'a null acceptance ID' => nil,
+      'a blank acceptance ID' => ' '
+    }.each do |description, acceptance_id|
+      it "exits with status 1 and no table for #{description}" do
+        incomplete_fill = case acceptance_id
+                          when Hash then acceptance_id
+                          when :missing then fill.reject { |key| key == 'child_order_acceptance_id' }
+                          else fill.merge('child_order_acceptance_id' => acceptance_id)
+                          end
+        stub_responses(private_client, executions: [fill, incomplete_fill])
+
+        expect do
+          expect { run_cli('executions') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Could not list executions. Unexpected response from bitFlyer.\n").to_stderr.and output('').to_stdout
+      end
+    end
+  end
+
   context 'with the SDK executions client' do
     before do
       stub_credentials
