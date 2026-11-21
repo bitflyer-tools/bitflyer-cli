@@ -7,7 +7,7 @@ repository root, use the Ruby version in `.ruby-version` and install
 the Bundler version recorded in `Gemfile.lock`.
 
 ```sh
-gem install bundler -v 2.6.9
+gem install bundler -v 4.1.0
 bundle install
 ```
 
@@ -24,11 +24,9 @@ gem build bitflyer-cli.gemspec
 The specs use client doubles and run without bitFlyer API credentials.
 
 CI runs RSpec on Ruby 3.3 with the default bundle. To run the
-coverage check used on Ruby 3.3 and 3.4, install Bundler 4.1.0 and use
-the coverage Gemfile:
+coverage check used on Ruby 3.3 and 3.4, use the coverage Gemfile:
 
 ```sh
-gem install bundler -v 4.1.0
 BUNDLE_GEMFILE=gemfiles/with_coverage/Gemfile bundle install
 BUNDLE_GEMFILE=gemfiles/with_coverage/Gemfile COVERAGE=true bundle exec rspec
 ```
