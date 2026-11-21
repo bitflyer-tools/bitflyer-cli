@@ -8,7 +8,6 @@ class CounterTradeCommand
 
   def run
     position = fetch_position
-    return unless position
     return puts "You don't have any position now." if position.empty?
     return puts 'Your net position is already flat.' if position.flat?
 

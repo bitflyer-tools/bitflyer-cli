@@ -30,7 +30,7 @@ describe SummaryCommand do
       expect(Thread).not_to receive(:new)
       expect(Bitflyer::Cli::RealtimeClient).not_to receive(:new)
       expect { described_class.new.run }
-        .to raise_error(HasHTTPClient::AccountLookupFailed, /Failed to look up positions:.*-200.*Invalid API key/)
+        .to raise_error(HasHTTPClient::PositionLookupFailed, /Failed to look up positions:.*-200.*Invalid API key/)
       expect(private_client).not_to have_received(:collateral)
       expect(private_client).to have_received(:close).once
     end

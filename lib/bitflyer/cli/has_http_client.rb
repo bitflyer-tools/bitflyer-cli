@@ -7,8 +7,9 @@ require 'bitflyer/cli/model/position'
 module HasHTTPClient
   include Authorization
 
-  class TickerError < StandardError; end
   class AccountLookupFailed < StandardError; end
+  class PositionLookupFailed < AccountLookupFailed; end
+  class TickerError < StandardError; end
 
   def http_public_client
     @http_public_client ||= Bitflyer.http_public_client
@@ -54,7 +55,7 @@ module HasHTTPClient
     nil
   end
 
-  def fetch_collateral(raise_on_failure: false)
+  def fetch_collateral
     response = http_private_client.collateral
     if response.is_a?(Hash)
       status = response['status']
@@ -63,22 +64,15 @@ module HasHTTPClient
       return collateral.to_i if !rejected && collateral.is_a?(Numeric) && collateral.finite?
     end
 
-    account_lookup_failed("Failed to look up collateral: #{response.inspect}", raise_on_failure)
+    raise AccountLookupFailed, "Failed to look up collateral: #{response.inspect}"
   end
 
-  def fetch_position(raise_on_failure: false)
+  def fetch_position
     positions = http_private_client.positions
     return Position.new(positions) if positions.is_a?(Array)
 
-    account_lookup_failed("Failed to look up positions: #{positions.inspect}", raise_on_failure)
+    raise PositionLookupFailed, "Failed to look up positions: #{positions.inspect}"
   rescue Position::InvalidRowError => e
-    account_lookup_failed("Failed to look up positions: #{e.message}", raise_on_failure)
-  end
-
-  def account_lookup_failed(message, raise_on_failure)
-    raise AccountLookupFailed, message if raise_on_failure
-
-    warn message
-    nil
+    raise PositionLookupFailed, "Failed to look up positions: #{e.message}"
   end
 end

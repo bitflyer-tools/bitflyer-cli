@@ -46,6 +46,52 @@ describe 'bitflyer executable' do
     expect(private_client).not_to have_received(:send_parent_order)
   end
 
+  {
+    %w[counter_trade] => "Your net position is already flat.\n",
+    %w[stop_by_range --range=5000] => "You don't have any position now.\n"
+  }.each do |args, flat_message|
+    context "when #{args.first} reads positions" do
+      before do
+        stub_responses(private_client, positions: positions, send_child_order: {}, send_parent_order: {})
+      end
+
+      after do
+        expect(private_client).not_to have_received(:send_child_order)
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
+      context 'with a rejected lookup' do
+        let(:positions) { { 'status' => -200, 'error_message' => 'Invalid API key' } }
+
+        it 'prints the API error to stderr and exits with status 1' do
+          expect do
+            expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+          end.to output(/Failed to look up positions:.*-200.*Invalid API key/).to_stderr.and output('').to_stdout
+        end
+      end
+
+      context 'with a malformed position row' do
+        let(:positions) { [nil] }
+
+        it 'prints the validation error to stderr and exits with status 1' do
+          expect do
+            expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+          end.to output("Failed to look up positions: row 1: expected an object\n").to_stderr.and output('').to_stdout
+        end
+      end
+
+      context 'with offsetting positions' do
+        let(:positions) do
+          [position(side: 'BUY', price: 1_000_000, size: 0.1), position(side: 'SELL', price: 1_100_000, size: 0.1)]
+        end
+
+        it 'completes normally without placing an order' do
+          expect { run_cli(*args) }.to output('').to_stderr.and output(flat_message).to_stdout
+        end
+      end
+    end
+  end
+
   it 'prints a ticker rejection to stderr and exits unsuccessfully without placing an order' do
     public_client = stub_public_client
     stub_responses(public_client, ticker: { 'status' => -1, 'error_message' => 'Ticker unavailable' })
@@ -138,6 +184,16 @@ describe 'bitflyer executable' do
     end
   end
 
+  it 'exits before starting the summary feed when a position row is malformed' do
+    client = stub_persistent_client
+    stub_responses(client, positions: [nil])
+    expect(Bitflyer::Cli::RealtimeClient).not_to receive(:new)
+
+    expect do
+      expect { run_cli('summary') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Failed to look up positions: row 1: expected an object\n").to_stderr.and output('').to_stdout
+  end
+
   it 'exits before sending a cancellation request when credentials are missing' do
     stub_credentials
     allow(ENV).to receive(:fetch).with('BITFLYER_API_SECRET', nil).and_return(nil)
@@ -189,6 +245,24 @@ describe 'bitflyer executable' do
     expect { run_cli('open_orders') }.to output("Child orders\nNone.\nParent strategies\nNone.\n").to_stdout
   end
 
+  %w[child parent].each do |type|
+    {
+      'a non-object record' => nil,
+      'a missing order ID' => {},
+      'a blank order ID' => { "#{type}_order_id" => ' ' },
+      'a non-string order ID' => { "#{type}_order_id" => 123 }
+    }.each do |description, record|
+      it "rejects #{description} in the #{type} orders response without printing rows" do
+        responses = { child_orders: [{ 'child_order_id' => 'JOR-order' }], parent_orders: [] }
+        stub_responses(private_client, **responses.merge(:"#{type}_orders" => [record]))
+
+        expect do
+          expect { run_cli('open_orders') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output('').to_stdout.and output("Could not list #{type} orders. Unexpected response from bitFlyer.\n").to_stderr
+      end
+    end
+  end
+
   it 'routes executions with a TWAP acceptance ID through the CLI' do
     stub_responses(private_client, executions: [])
 
@@ -204,6 +278,32 @@ describe 'bitflyer executable' do
     expect do
       expect { run_cli('executions') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("Could not list executions. Permission denied\n").to_stderr
+  end
+
+  context 'with the SDK executions client' do
+    before do
+      stub_credentials
+      transport = instance_double(Net::HTTP, request: response)
+      allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true).and_yield(transport)
+    end
+
+    context 'when the HTTP 503 response has no body' do
+      let(:response) { instance_double(Net::HTTPServiceUnavailable, body: nil) }
+
+      it 'prints a lookup diagnostic without a table and exits with status 1' do
+        expect do
+          expect { run_cli('executions') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output(/\ACould not list executions\.[^\n]*\n\z/).to_stderr.and output('').to_stdout
+      end
+    end
+
+    context 'when the HTTP 200 response contains an empty array' do
+      let(:response) { instance_double(Net::HTTPOK, body: '[]') }
+
+      it 'prints the empty result and completes successfully' do
+        expect { run_cli('executions') }.to output("No executions found.\n").to_stdout.and output('').to_stderr
+      end
+    end
   end
 
   def stub_cancellation_response(code, body)
