@@ -98,12 +98,32 @@ class OrderByTWAPCommand
   end
 
   def report_order(response)
-    if response['child_order_acceptance_id'].nil?
-      puts "An error has occurred\n#{response}"
-      :rejected
-    else
-      puts response
-      :accepted
+    body = response.body
+    return :unverified unless body.is_a?(Hash) && verifiable_status?(response.status)
+
+    if accepted_order?(response.status, body)
+      puts body
+      return :accepted
     end
+    return :unverified unless body['child_order_acceptance_id'].nil? && exchange_rejection?(body)
+
+    puts "An error has occurred\n#{body}"
+    :rejected
+  end
+
+  def verifiable_status?(status)
+    status.between?(200, 299) || (status.between?(400, 499) && status != 408)
+  end
+
+  def accepted_order?(status, body)
+    acceptance_id = body['child_order_acceptance_id']
+    status.between?(200, 299) && acceptance_id.is_a?(String) && !acceptance_id.strip.empty? &&
+      !exchange_rejection?(body)
+  end
+
+  def exchange_rejection?(body)
+    status = body['status']
+    message = body['error_message']
+    (status.is_a?(Numeric) && status.negative?) || (message.is_a?(String) && !message.strip.empty?)
   end
 end

@@ -5,6 +5,8 @@ require 'bitflyer'
 module Bitflyer
   module Cli
     class PersistentHTTPClient < HTTP::Private::Client
+      PostResponse = Struct.new(:status, :body)
+
       def initialize(key, secret) # rubocop:disable Lint/MissingSuper
         @connection = Connection.new(key, secret)
       end
@@ -27,7 +29,11 @@ module Bitflyer
           @http ||= Net::HTTP.start(@uri.host, @uri.port, use_ssl: true, keep_alive_timeout: 30)
           # Net::HTTP reconnects before sending when it detects a closed socket.
           # Its transport retries apply only to idempotent methods, excluding POST.
-          parse_body(@http.request(request).body)
+          response = @http.request(request)
+          body = parse_body(response.body.to_s)
+          return body unless request.is_a?(Net::HTTP::Post)
+
+          PostResponse.new(response.code.to_i, body)
         end
       end
       private_constant :Connection
