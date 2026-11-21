@@ -166,16 +166,19 @@ describe Bitflyer::Cli::Runner do
     expect(client).not_to have_received(:send_child_order)
   end
 
-  it 'rejects a negative TWAP interval before sending any orders' do
-    client = stub_persistent_client
-    stub_responses(client, send_child_order: { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' })
+  { 'negative' => '-1', 'overflowing' => "#{'9' * 310}.0" }.each do |description, interval|
+    it "rejects the #{description} TWAP interval before sending any orders" do
+      client = stub_persistent_client
+      acceptance = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, 'child_order_acceptance_id' => 'JRF20180101-000000-000001')
+      stub_responses(client, send_child_order: acceptance)
 
-    expect do
       expect do
-        start('order_by_twap', '--amount', '0.01', '--type', 'buy', '--number-of-times', '2', '--interval', '-1')
-      end.to raise_error(SystemExit)
-    end.to output(/^Invalid interval: --interval must be non-negative\.$/).to_stderr
-    expect(client).not_to have_received(:send_child_order)
+        expect do
+          start('order_by_twap', '-a', '0.01', '-t', 'buy', '-n', '2', "--interval=#{interval}")
+        end.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/^--interval must be finite and >= 0$/).to_stderr
+      expect(client).not_to have_received(:send_child_order)
+    end
   end
 
   it 'passes options from the README stop_by_range example' do
