@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'thor'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/stop_submission'
@@ -75,8 +76,10 @@ class StopByRangeCommand
     return unless size
 
     side = position.size.positive? ? 'SELL' : 'BUY'
-    trigger_price = position.average + (range * (side == 'BUY' ? 1.0 : -1.0))
-    { product_code: PRODUCT_CODE, condition_type: 'STOP', side: side, trigger_price: trigger_price, size: size }
+    price = position.average + (range * (side == 'BUY' ? 1.0 : -1.0))
+    raise Thor::Error, 'Stop trigger price must be positive and finite.' unless price.finite? && price.positive?
+
+    { product_code: PRODUCT_CODE, condition_type: 'STOP', side: side, trigger_price: price, size: size }
   end
 
   def find_parent_order(state, &match_order)

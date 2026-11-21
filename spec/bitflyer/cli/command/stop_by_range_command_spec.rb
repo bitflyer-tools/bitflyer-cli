@@ -60,6 +60,14 @@ describe StopByRangeCommand, :stop_state do
       end
     end
 
+    [1_000_000, 1_200_000].each do |range|
+      it "rejects a nonpositive sell stop trigger from a range of #{range}" do
+        expect { run(range) }.to raise_error(Thor::Error, 'Stop trigger price must be positive and finite.')
+        expect(private_client).not_to have_received(:parent_orders)
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+    end
+
     it 'sets a sell stop below the average price' do
       expect { run }.to output("Set stop order SELL / 995000.0 / 0.2\n").to_stdout
       expect(private_client).to have_received(:send_parent_order)
@@ -71,6 +79,15 @@ describe StopByRangeCommand, :stop_state do
       allow(private_client).to receive(:positions).and_return(positions, reduced_positions)
 
       expect { run }.to raise_error(StopByRangeCommand::LookupFailed, /Position changed/)
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+
+    it 'rejects a nonpositive trigger from the refreshed position' do
+      refreshed_positions = [position(side: 'BUY', price: 5000, size: 0.2)]
+      allow(private_client).to receive(:positions).and_return(positions, refreshed_positions)
+
+      expect { run }.to raise_error(Thor::Error, 'Stop trigger price must be positive and finite.')
+      expect(private_client).not_to have_received(:parent_orders)
       expect(private_client).not_to have_received(:send_parent_order)
     end
 
@@ -290,6 +307,12 @@ describe StopByRangeCommand, :stop_state do
       expect { run }.to output("Set stop order BUY / 1005000.0 / 0.2\n").to_stdout
       expect(private_client).to have_received(:send_parent_order)
         .with(stop_order(side: 'BUY', trigger_price: 1_005_000.0, size: 0.2))
+    end
+
+    it 'rejects an infinite buy stop trigger' do
+      expect { run(Float::INFINITY) }.to raise_error(Thor::Error, 'Stop trigger price must be positive and finite.')
+      expect(private_client).not_to have_received(:parent_orders)
+      expect(private_client).not_to have_received(:send_parent_order)
     end
   end
 
