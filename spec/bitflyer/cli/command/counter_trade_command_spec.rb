@@ -1,11 +1,11 @@
 require 'spec_helper'
 require 'open3'
 require 'rbconfig'
+require 'timeout'
 
 describe 'Loading the counter trade command on its own' do
   it 'submits an order for an open position without loading another command' do
     script = <<~'RUBY'
-      $LOADED_FEATURES << 'bitflyer.rb'
       require 'bitflyer/cli/command/counter_trade_command'
 
       client = Object.new
@@ -14,11 +14,12 @@ describe 'Loading the counter trade command on its own' do
       end
 
       def client.send_child_order(product_code:, child_order_type:, side:, size:)
-        { 'child_order_acceptance_id' => 'accepted' }
+        Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, { 'child_order_acceptance_id' => 'accepted' })
       end
 
       command = CounterTradeCommand.new
       command.define_singleton_method(:http_private_client) { client }
+      command.define_singleton_method(:persistent_http_client) { client }
       command.run
 
       other_commands = $LOADED_FEATURES.grep(%r{/bitflyer/cli/command/(?!counter_trade_command\.rb\z)})
@@ -26,21 +27,24 @@ describe 'Loading the counter trade command on its own' do
     RUBY
 
     lib = File.expand_path('../../../../lib', __dir__)
-    stdout, stderr, status = Open3.capture3(RbConfig.ruby, '-I', lib, '-e', script)
+    stdout, stderr, status = Dir.mktmpdir do |directory|
+      Open3.capture3({ 'XDG_STATE_HOME' => directory }, RbConfig.ruby, '-I', lib, '-e', script)
+    end
 
     expect(status.success?).to be(true), stdout + stderr
     expect(stdout).to eq("Clear position SELL / 0.1\n")
   end
 end
 
-describe CounterTradeCommand do
+describe CounterTradeCommand, :counter_trade_state do
   subject(:run_command) { described_class.new.run }
 
-  let!(:private_client) { stub_private_client }
+  let!(:private_client) { stub_persistent_client }
+  let(:http_status) { 200 }
   let(:accepted) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' } }
 
   before do
-    stub_responses(private_client, positions: positions, send_child_order: accepted)
+    stub_responses(private_client, positions: positions, send_child_order: Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(http_status, accepted))
   end
 
   include_examples 'rejects malformed position snapshots', :send_child_order
@@ -107,6 +111,120 @@ describe CounterTradeCommand do
 
     it 'raises with the exchange rejection' do
       expect { described_class.new.run }.to raise_error(Bitflyer::Cli::OrderRejected, /Order rejected:.*-205/)
+    end
+  end
+
+  context 'when an offset might have been accepted' do
+    let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.2)] }
+
+    it 'retains an unverified record after a timeout' do
+      allow(private_client).to receive(:send_child_order).and_raise(Net::ReadTimeout)
+
+      expect { described_class.new.run }.to raise_error(Thor::Error, /communication error/)
+      expect { described_class.new.run }.to raise_error(Thor::Error, /acceptance is unverified/)
+      expect(private_client).to have_received(:send_child_order).once
+    end
+
+    context 'with a gateway error carrying an exchange error body' do
+      let(:http_status) { 502 }
+      let(:accepted) { { 'status' => -205 } }
+
+      it 'requires reconciliation before retrying' do
+        expect { described_class.new.run }.to raise_error(Thor::Error, /HTTP 502/)
+        expect { described_class.new.run }.to raise_error(Thor::Error, /acceptance is unverified/)
+        expect(private_client).to have_received(:send_child_order).once
+      end
+    end
+
+    it 'blocks a second API key while the original order is pending' do
+      expect { described_class.new.run }.to output(/Clear position/).to_stdout
+      allow(ENV).to receive(:fetch).with('BITFLYER_API_KEY', nil).and_return('other-key')
+
+      expect { described_class.new.run }.to raise_error(Thor::Error, /original API key/)
+      expect(private_client).to have_received(:send_child_order).once
+    end
+  end
+
+end
+
+describe 'Concurrent counter trades' do
+  let(:script) do
+    <<~'RUBY'
+      require 'bitflyer/cli/command/counter_trade_command'
+
+      $stdout.sync = true
+      client = Object.new
+      def client.positions
+        return [] if ENV.fetch('PHASE') == 'visible'
+
+        [{ 'side' => 'BUY', 'price' => 1_000_000, 'size' => 0.2 }]
+      end
+
+      def client.send_child_order(product_code:, child_order_type:, side:, size:)
+        File.open(ENV.fetch('ORDER_LOG'), 'a') { |log| log.puts "#{side} #{size}" }
+        if ENV.fetch('PHASE') == 'first'
+          puts 'Submitted'
+          $stdin.gets
+        end
+        Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, { 'child_order_acceptance_id' => 'accepted' })
+      end
+
+      def client.child_order_by_acceptance_id(product_code:, child_order_acceptance_id:)
+        return [] if ENV.fetch('PHASE') == 'pending'
+
+        [{ 'child_order_acceptance_id' => child_order_acceptance_id,
+           'child_order_state' => 'COMPLETED', 'executed_size' => 0.2 }]
+      end
+
+      command = CounterTradeCommand.new
+      command.define_singleton_method(:http_private_client) { client }
+      command.define_singleton_method(:persistent_http_client) { client }
+      if ENV.fetch('PHASE') == 'pending'
+        lock = File.join(Bitflyer::Cli::CounterTradeSubmission.state_directory, 'FX_BTC_JPY.json.lock')
+        File.open(lock, 'r+') do |file|
+          abort 'First process did not hold the lock' if file.flock(File::LOCK_EX | File::LOCK_NB)
+        end
+      end
+      puts 'Ready'
+      begin
+        command.run
+      rescue Thor::Error => e
+        abort e.message
+      end
+    RUBY
+  end
+
+  it 'suppresses a concurrent offset and reconciles only after the fill is reflected in exposure' do
+    lib = File.expand_path('../../../../lib', __dir__)
+    Dir.mktmpdir do |directory|
+      log = File.join(directory, 'orders')
+      env = { 'XDG_STATE_HOME' => directory, 'ORDER_LOG' => log, 'BITFLYER_API_KEY' => 'key' }
+      command = [RbConfig.ruby, '-I', lib, '-e', script]
+
+      Timeout.timeout(15) do
+        Open3.popen3(env.merge('PHASE' => 'first'), *command) do |input, output, errors, first|
+          expect(output.gets).to eq("Ready\n")
+          expect(output.gets).to eq("Submitted\n")
+          Open3.popen3(env.merge('PHASE' => 'pending'), *command) do |_, second_out, second_err, second|
+            expect(second_out.gets).to eq("Ready\n")
+            input.puts 'Continue'
+            expect(first.value).to be_success, errors.read
+            expect(second.value.exitstatus).to eq(1)
+            expect(second_err.read).to include('awaiting reconciliation')
+          ensure
+            input.close
+          end
+        end
+
+        _, stderr, status = Open3.capture3(env.merge('PHASE' => 'stale'), *command)
+        expect(status.exitstatus).to eq(1)
+        expect(stderr).to include('exposure is not confirmed')
+
+        stdout, stderr, status = Open3.capture3(env.merge('PHASE' => 'visible'), *command)
+        expect(status).to be_success, stderr
+        expect(stdout).to include("You don't have any position now.")
+        expect(File.readlines(log)).to eq(["SELL 0.2\n"])
+      end
     end
   end
 end

@@ -1,7 +1,7 @@
 require 'spec_helper'
 require 'open3'
 
-describe 'bitflyer executable', :stop_state do
+describe 'bitflyer executable', :stop_state, :counter_trade_state do
   let(:private_client) { stub_private_client }
 
   def run_bitflyer(*args)
@@ -426,6 +426,56 @@ describe 'bitflyer executable', :stop_state do
     end.to output("Could not verify cancellation acceptance from bitFlyer.\n").to_stderr
   end
 
+  context 'when reconciling a counter trade through the CLI' do
+    let(:private_client) do
+      stub_credentials
+      instance_double(Bitflyer::HTTP::Private::Client).tap do |client|
+        allow(Bitflyer).to receive(:http_private_client).with('key', 'secret').and_return(client)
+      end
+    end
+    let(:transport) { instance_double(Net::HTTP, started?: false) }
+    let(:acceptance_id) { 'JRF20180101-000000-000001' }
+
+    before do
+      allow(private_client).to receive(:positions).and_return([position(side: 'BUY', price: 1_000_000, size: 0.2)])
+      allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true, keep_alive_timeout: 30)
+                                       .and_return(transport)
+      allow(transport).to receive(:request).with(an_object_having_attributes(path: '/v1/me/sendchildorder'))
+                                          .and_return(order_response(200, 'child_order_acceptance_id' => acceptance_id))
+      expect { run_cli('counter_trade') }.to output("Clear position SELL / 0.2\n").to_stdout
+    end
+
+    def order_response(status, body)
+      instance_double(Net::HTTPResponse, code: status.to_s, body: JSON.generate(body))
+    end
+
+    def stub_order_lookup(response)
+      path = "/v1/me/getchildorders?product_code=FX_BTC_JPY&child_order_acceptance_id=#{acceptance_id}"
+      allow(transport).to receive(:request).with(an_object_having_attributes(path: path)).and_return(response)
+    end
+
+    it 'sizes the next offset from the exposure left by a terminal partial fill' do
+      order = { 'child_order_acceptance_id' => acceptance_id, 'child_order_state' => 'CANCELED', 'executed_size' => 0.05 }
+      stub_order_lookup(order_response(200, [order]))
+      allow(private_client).to receive(:positions).and_return([position(side: 'BUY', price: 1_000_000, size: 0.15)])
+
+      expect { run_cli('counter_trade') }.to output("Clear position SELL / 0.15\n").to_stdout
+      expect(transport).to have_received(:request).with(
+        an_object_having_attributes(path: '/v1/me/sendchildorder', body: a_string_including('"size":0.15'))
+      )
+    end
+
+    it 'leaves the record in place when the order lookup fails' do
+      stub_order_lookup(order_response(503, []))
+
+      expect do
+        expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/awaiting reconciliation.*Record:/m).to_stderr
+      expect(transport).to have_received(:request)
+        .with(an_object_having_attributes(path: '/v1/me/sendchildorder')).once
+    end
+  end
+
   context 'when submitting a protective stop' do
     let(:args) { %w[stop_by_range --range=5000] }
     let(:transport) { instance_double(Net::HTTP, started?: false) }
@@ -492,6 +542,13 @@ describe 'bitflyer executable', :stop_state do
   }.each do |args, order_type|
     context "when running #{args.first}" do
       let(:order_method) { :"send_#{order_type}_order" }
+      let(:private_client) { args.first == 'counter_trade' ? stub_persistent_client : stub_private_client }
+
+      def order_response(command, body)
+        return body unless command == 'counter_trade'
+
+        Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, body)
+      end
 
       before do
         positions = [position(side: 'BUY', price: 1_000_000, size: 0.1)]
@@ -500,7 +557,7 @@ describe 'bitflyer executable', :stop_state do
       end
 
       it 'prints the exchange rejection to stderr and exits unsuccessfully' do
-        stub_responses(private_client, order_method => { 'status' => -205, 'error_message' => 'Insufficient margin' })
+        stub_responses(private_client, order_method => order_response(args.first, { 'status' => -205, 'error_message' => 'Insufficient margin' }))
 
         expect do
           expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -508,7 +565,7 @@ describe 'bitflyer executable', :stop_state do
       end
 
       it 'completes normally when the order is accepted' do
-        stub_responses(private_client, order_method => { "#{order_type}_order_acceptance_id" => 'accepted' })
+        stub_responses(private_client, order_method => order_response(args.first, { "#{order_type}_order_acceptance_id" => 'accepted' }))
 
         expect { run_cli(*args) }.to output('').to_stderr.and output(/.+/).to_stdout
         expect(private_client).to have_received(order_method)
