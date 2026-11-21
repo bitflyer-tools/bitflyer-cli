@@ -116,6 +116,17 @@ describe 'bitflyer executable', :stop_state do
     end.to output("rejected\n").to_stderr
   end
 
+  it 'reports a malformed cancel-all response as unverified without retrying' do
+    stub_credentials
+    transport = stub_cancellation_response('200', 'Unexpected response')
+
+    expect do
+      expect { run_cli('cancel_all') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Could not verify cancel-all acceptance from bitFlyer (HTTP 200).\n").to_stderr
+      .and output('').to_stdout
+    expect(transport).to have_received(:request).once
+  end
+
   it 'prints a limit order rejection to stderr and exits unsuccessfully' do
     stub_responses(stub_public_client, ticker: { 'best_bid' => 1_000_000 })
     stub_responses(private_client, send_child_order: { 'status' => -200, 'error_message' => 'Order rejected' })
