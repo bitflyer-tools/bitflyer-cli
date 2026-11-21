@@ -42,11 +42,13 @@ module Bitflyer
       end
 
       def record(exposure, acceptance_id = nil)
-        Tempfile.create('pending-', File.dirname(@path)) do |file|
+        directory = File.dirname(@path)
+        Tempfile.create('pending-', directory) do |file|
           file.write(JSON.generate(credential: @credential, exposure: exposure.to_s('F'), acceptance_id: acceptance_id))
           file.flush
           file.fsync
           File.rename(file.path, @path)
+          File.open(directory, File::RDONLY, &:fsync)
         end
       end
 

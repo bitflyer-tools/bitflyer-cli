@@ -91,6 +91,17 @@ describe CounterTradeCommand, :counter_trade_state do
       expect(private_client).to have_received(:send_child_order)
         .with(product_code: 'FX_BTC_JPY', child_order_type: 'MARKET', side: 'SELL', size: 0.3)
     end
+
+    it 'does not submit an order if syncing the submission directory fails' do
+      directory = Bitflyer::Cli::CounterTradeSubmission.state_directory
+      directory_handle = instance_double(File)
+      allow(File).to receive(:open).and_call_original
+      allow(File).to receive(:open).with(directory, File::RDONLY).and_yield(directory_handle)
+      allow(directory_handle).to receive(:fsync).and_raise(Errno::EIO)
+
+      expect { described_class.new.run }.to raise_error(Errno::EIO)
+      expect(private_client).not_to have_received(:send_child_order)
+    end
   end
 
   context 'with a net short position' do
