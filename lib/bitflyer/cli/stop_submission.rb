@@ -4,10 +4,13 @@ require 'digest'
 require 'fileutils'
 require 'json'
 require 'tempfile'
+require 'bitflyer/cli/order_rejected'
 
 module Bitflyer
   module Cli
     class StopSubmission
+      class Unverified < StandardError; end
+
       UNVERIFIED = 'unverified'
 
       attr_reader :path
@@ -48,8 +51,29 @@ module Bitflyer
         end
       end
 
+      def record_response(response, acceptance_key)
+        status = response.status
+        body = response.body
+        acceptance_id = body[acceptance_key] if body.is_a?(Hash)
+        if acceptance_id.nil? && definite_rejection?(status, body)
+          clear
+          OrderRejected.check!(body, acceptance_key)
+        end
+        return record(acceptance_id) if status.between?(200, 299) &&
+                                        acceptance_id.is_a?(String) && !acceptance_id.strip.empty?
+
+        raise Unverified, "Could not verify stop order acceptance (HTTP #{status})."
+      end
+
       def clear
         File.unlink(@path)
+      end
+
+      private
+
+      def definite_rejection?(status, body)
+        verifiable = status.between?(200, 299) || (status.between?(400, 499) && status != 408)
+        verifiable && body.is_a?(Hash) && body['status'].is_a?(Integer) && body['status'].negative?
       end
     end
   end

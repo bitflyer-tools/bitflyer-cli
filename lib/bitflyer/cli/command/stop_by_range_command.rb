@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require 'bitflyer/cli/has_http_client'
-require 'bitflyer/cli/order_rejected'
+require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/stop_submission'
 
 class StopByRangeCommand
@@ -26,6 +26,8 @@ class StopByRangeCommand
 
     submission = Bitflyer::Cli::StopSubmission.new(api_key, stop)
     submission.synchronize { place_stop(stop, submission) }
+  ensure
+    close_persistent_http_client
   end
 
   private
@@ -124,13 +126,8 @@ class StopByRangeCommand
 
   def submit_stop(stop, description, submission)
     submission.record(Bitflyer::Cli::StopSubmission::UNVERIFIED)
-    response = http_private_client.send_parent_order(order_method: 'SIMPLE', parameters: [stop])
-    if response.is_a?(Hash) && response[ACCEPTANCE_ID].nil? && response['status'].is_a?(Integer) &&
-       response['status'].negative?
-      submission.clear
-    end
-    Bitflyer::Cli::OrderRejected.check!(response, ACCEPTANCE_ID)
-    submission.record(response.fetch(ACCEPTANCE_ID).to_s)
+    response = persistent_http_client.send_parent_order(order_method: 'SIMPLE', parameters: [stop])
+    submission.record_response(response, ACCEPTANCE_ID)
     puts "Set stop order #{description}"
   end
 end

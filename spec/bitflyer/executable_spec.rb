@@ -422,10 +422,53 @@ describe 'bitflyer executable', :stop_state do
     end.to output("Could not verify cancellation acceptance from bitFlyer.\n").to_stderr
   end
 
+  context 'when submitting a protective stop' do
+    let(:args) { %w[stop_by_range --range=5000] }
+    let(:transport) { instance_double(Net::HTTP, started?: false) }
+
+    before do
+      positions = [position(side: 'BUY', price: 1_000_000, size: 0.1)]
+      stub_credentials
+      client = instance_double(Bitflyer::HTTP::Private::Client, positions: positions, parent_orders: [])
+      allow(Bitflyer).to receive(:http_private_client).with('key', 'secret').and_return(client)
+      allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true, keep_alive_timeout: 30)
+                                       .and_return(transport)
+    end
+
+    it 'prints a definitive exchange rejection to stderr and exits unsuccessfully' do
+      response = instance_double(Net::HTTPBadRequest, code: '400',
+                                  body: '{"status":-205,"error_message":"Insufficient margin"}')
+      allow(transport).to receive(:request).and_return(response)
+
+      expect do
+        expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Insufficient margin\n").to_stderr.and output('').to_stdout
+    end
+
+    it 'reports successful acceptance' do
+      response = instance_double(Net::HTTPOK, code: '200', body: '{"parent_order_acceptance_id":"accepted"}')
+      allow(transport).to receive(:request).and_return(response)
+
+      expect { run_cli(*args) }.to output(/Set stop order/).to_stdout.and output('').to_stderr
+    end
+
+    it 'keeps a stop pending after HTTP 503 even when the body reports an exchange rejection' do
+      response = instance_double(Net::HTTPServiceUnavailable, code: '503', body: '{"status":-205}')
+      allow(transport).to receive(:request).and_return(response)
+
+      expect do
+        expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not verify stop order acceptance (HTTP 503).\n").to_stderr.and output('').to_stdout
+
+      expect { run_cli(*args) }.to output(/unverified.*awaiting confirmation/).to_stdout
+      expect(transport).to have_received(:request)
+        .with(an_object_having_attributes(path: '/v1/me/sendparentorder')).once
+    end
+  end
+
   {
     %w[counter_trade] => 'child',
     %w[order_by_best --amount=0.01 --type=buy] => 'child',
-    %w[stop_by_range --range=5000] => 'parent',
     %w[ifdoco_by_range --amount=0.01 --type=buy --range=10000 --percentage=60] => 'parent'
   }.each do |args, order_type|
     context "when running #{args.first}" do

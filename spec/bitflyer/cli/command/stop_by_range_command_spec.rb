@@ -4,11 +4,11 @@ require 'timeout'
 describe StopByRangeCommand, :stop_state do
   subject(:run_command) { run }
 
-  let!(:private_client) { stub_private_client }
+  let!(:private_client) { stub_persistent_client }
   let(:response) { { 'parent_order_acceptance_id' => 'JRF20180101-000000-000001' } }
 
   before do
-    stub_responses(private_client, positions: positions, parent_orders: [], send_parent_order: response)
+    stub_responses(private_client, positions: positions, parent_orders: [], send_parent_order: post_response)
   end
 
   include_examples 'rejects malformed position snapshots', :send_parent_order
@@ -16,6 +16,10 @@ describe StopByRangeCommand, :stop_state do
 
   def run(range = 5000)
     described_class.new.run(thor_options(range: range))
+  end
+
+  def post_response(status = 200, body = response)
+    Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(status, body)
   end
 
   def stop_order(side:, trigger_price:, size:)
@@ -76,7 +80,7 @@ describe StopByRangeCommand, :stop_state do
           posting << true
           continue_post.pop
         end
-        response
+        post_response
       end
 
       expect do
@@ -204,11 +208,15 @@ describe StopByRangeCommand, :stop_state do
     end
 
     context 'when the stop order is rejected' do
-      let(:response) { { 'status' => -200, 'error_message' => 'Order rejected' } }
+      before do
+        stub_responses(private_client, send_parent_order: post_response(400, {
+                         'status' => -200, 'error_message' => 'Order rejected'
+                       }))
+      end
 
       it 'raises with the exchange rejection' do
         expect { run }.to raise_error(Bitflyer::Cli::OrderRejected, 'Order rejected')
-        stub_responses(private_client, send_parent_order: { 'parent_order_acceptance_id' => 'accepted' })
+        stub_responses(private_client, send_parent_order: post_response)
         expect { run }.to output(/Set stop order/).to_stdout
       end
     end

@@ -62,9 +62,9 @@ Runs on the same machine and OS account coordinate when they use the same API
 key and stop parameters. The CLI keeps a local submission record while waiting
 for bitFlyer to list an accepted stop. It stores records under
 `$XDG_STATE_HOME/bitflyer-cli/stops` (default `~/.local/state/bitflyer-cli/stops`).
-If a connection error leaves acceptance unverified, check the order in bitFlyer
-before retrying. Once you confirm the outcome, remove the unverified record at the path shown by
-the CLI. Keep the `.lock` files in place.
+If a connection error or HTTP 5xx response leaves acceptance unverified, check
+the order in bitFlyer before retrying. Once you confirm the outcome, remove the
+unverified record at the path shown by the CLI. Keep the `.lock` files in place.
 
 ### List and cancel open orders
 
