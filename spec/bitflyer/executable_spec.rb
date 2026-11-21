@@ -123,6 +123,21 @@ describe 'bitflyer executable' do
     end.to output("Set the required environment variables: BITFLYER_API_KEY\n").to_stderr.and output('').to_stdout
   end
 
+  {
+    positions: { 'status' => -200, 'error_message' => 'Invalid API key' },
+    collateral: { 'status' => -1, 'collateral' => 60_000 }
+  }.each do |lookup, response|
+    it "exits with a diagnostic before starting the summary feed when #{lookup} is rejected" do
+      client = stub_persistent_client
+      stub_responses(client, **{ positions: [], collateral: { 'collateral' => 50_000 }, lookup => response })
+      expect(Bitflyer::Cli::RealtimeClient).not_to receive(:new)
+
+      expect do
+        expect { run_cli('summary') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Failed to look up #{lookup}: #{response.inspect}\n").to_stderr.and output('').to_stdout
+    end
+  end
+
   it 'exits before sending a cancellation request when credentials are missing' do
     stub_credentials
     allow(ENV).to receive(:fetch).with('BITFLYER_API_SECRET', nil).and_return(nil)

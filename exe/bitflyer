@@ -6,6 +6,6 @@ begin
   Bitflyer::Cli::Runner.start
 rescue Authorization::MissingCredentials, CancelAllCommand::Rejected, CancelOrderCommand::Failed,
        OpenOrdersCommand::LookupFailed, ExecutionsCommand::LookupFailed, StopByRangeCommand::LookupFailed,
-       Bitflyer::Cli::OrderRejected, HasHTTPClient::TickerError => e
+       Bitflyer::Cli::OrderRejected, HasHTTPClient::TickerError, HasHTTPClient::AccountLookupFailed => e
   abort e.message
 end

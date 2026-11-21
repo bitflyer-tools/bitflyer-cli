@@ -20,8 +20,6 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
   end
 
   def run # rubocop:disable Metrics/MethodLength
-    return unless @account_snapshot
-
     stdout = $stdout
     original_sync = stdout.sync
     stdout.sync = true
@@ -97,13 +95,14 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
   end
 
   def update_balance
-    position = fetch_position
-    return mark_account_stale unless position
-
-    balance = fetch_collateral
-    return mark_account_stale if balance.nil?
-
+    position = fetch_position(raise_on_failure: true)
+    balance = fetch_collateral(raise_on_failure: true)
     @account_snapshot = [position, balance, false].freeze
+  rescue HasHTTPClient::AccountLookupFailed => e
+    raise unless @account_snapshot
+
+    warn e.message
+    mark_account_stale
   end
 
   def mark_account_stale
