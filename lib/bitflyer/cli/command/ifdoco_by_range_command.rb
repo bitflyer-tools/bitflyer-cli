@@ -38,14 +38,19 @@ class IFDOCOByRangeCommand
     direction = side == 'BUY' ? 1 : -1
     profit_price = (current_price + (direction * range * ratio / 100.0)).to_i
     loss_price = (current_price - (direction * range * (100.0 - ratio) / 100.0)).to_i
-    lower, upper = side == 'BUY' ? [loss_price, profit_price] : [profit_price, loss_price]
-    unless lower < current_price && current_price < upper
-      raise Thor::Error, 'Take-profit and stop prices must strictly bracket the reference price after rounding.'
-    end
-
+    validate_exit_prices!(side == 'BUY' ? [loss_price, profit_price] : [profit_price, loss_price], current_price)
     [profit_price, loss_price]
   rescue FloatDomainError
     raise Thor::Error, 'Exit prices must be finite.'
+  end
+
+  def validate_exit_prices!(prices, current_price)
+    raise Thor::Error, 'Take-profit and stop prices must be positive after rounding.' unless prices.all?(&:positive?)
+
+    lower, upper = prices
+    return if lower < current_price && current_price < upper
+
+    raise Thor::Error, 'Take-profit and stop prices must strictly bracket the reference price after rounding.'
   end
 
   def print_confirmation(parameters)

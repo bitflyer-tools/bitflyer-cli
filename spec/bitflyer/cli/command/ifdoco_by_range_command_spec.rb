@@ -105,6 +105,14 @@ describe IFDOCOByRangeCommand do
         expect(private_client).not_to have_received(:send_parent_order)
       end
 
+      [1_999_999, 2_000_000, 3_000_000].each do |range|
+        it "rejects a nonpositive rounded exit price from a range of #{range}" do
+          expect { run(side, range: range, percentage: 50) }
+            .to raise_error(Thor::Error, 'Take-profit and stop prices must be positive after rounding.')
+          expect(private_client).not_to have_received(:send_parent_order)
+        end
+      end
+
       it 'rejects a range that overflows the exit price calculation' do
         expect { run(side, range: Float::MAX) }.to raise_error(Thor::Error, /Exit prices must be finite/)
         expect(private_client).not_to have_received(:send_parent_order)
