@@ -442,6 +442,18 @@ describe SummaryCommand do
     workers&.each { |worker| worker.kill.join }
   end
 
+  context 'with a fractional short break-even price' do
+    let(:positions) do
+      [position(side: 'SELL', price: 10_000, size: 0.01), position(side: 'SELL', price: 10_001, size: 0.03)]
+    end
+
+    it 'displays the position price in whole yen' do
+      output = capture_stdout { run_once(described_class.new) }
+
+      expect(output).to include("Position: 10,000 * -0.04\n")
+    end
+  end
+
   context 'with offsetting positions' do
     let(:positions) do
       [position(side: 'BUY', price: 1_000_000, size: 0.1), position(side: 'SELL', price: 1_100_000, size: 0.1)]

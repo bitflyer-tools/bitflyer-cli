@@ -60,7 +60,7 @@ describe StopByRangeCommand, :stop_state do
       end
     end
 
-    [1_000_000, 1_200_000].each do |range|
+    [999_999.5, 1_000_000, 1_200_000].each do |range|
       it "rejects a nonpositive sell stop trigger from a range of #{range}" do
         expect { run(range) }.to raise_error(Thor::Error, 'Stop trigger price must be positive and finite.')
         expect(private_client).not_to have_received(:parent_orders)
@@ -312,6 +312,28 @@ describe StopByRangeCommand, :stop_state do
     it 'rejects an infinite buy stop trigger' do
       expect { run(Float::INFINITY) }.to raise_error(Thor::Error, 'Stop trigger price must be positive and finite.')
       expect(private_client).not_to have_received(:parent_orders)
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+  end
+
+  context 'with a fractional short break-even price' do
+    let(:positions) do
+      [position(side: 'SELL', price: 10_000, size: 0.01), position(side: 'SELL', price: 10_001, size: 0.03)]
+    end
+    let(:buy_stop) { stop_order(side: 'BUY', trigger_price: 10_002, size: 0.04) }
+
+    it 'adds the range to 10,000.75 yen before rounding the buy trigger up' do
+      expect { run(0.5) }.to output(/Set stop order BUY/).to_stdout
+      expect(private_client).to have_received(:send_parent_order).with(buy_stop)
+    end
+
+    it 'recognizes an active stop at the final trigger price' do
+      parent = { 'id' => 1, 'parent_order_id' => 'JCO-stop', 'parent_order_type' => 'STOP' }
+      parameters = buy_stop.fetch(:parameters).map { |parameter| parameter.transform_keys(&:to_s) }
+      stub_responses(private_client, parent_orders: [parent],
+                                     parent_order: { 'order_method' => 'SIMPLE', 'parameters' => parameters })
+
+      expect { run(0.5) }.to output(/Existing stop order BUY.*JCO-stop/).to_stdout
       expect(private_client).not_to have_received(:send_parent_order)
     end
   end
