@@ -191,6 +191,32 @@ describe 'bitflyer executable' do
     end.to output("Could not list executions. Permission denied\n").to_stderr
   end
 
+  context 'with the SDK executions client' do
+    before do
+      stub_credentials
+      transport = instance_double(Net::HTTP, request: response)
+      allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true).and_yield(transport)
+    end
+
+    context 'when the HTTP 503 response has no body' do
+      let(:response) { instance_double(Net::HTTPServiceUnavailable, body: nil) }
+
+      it 'prints a lookup diagnostic without a table and exits with status 1' do
+        expect do
+          expect { run_cli('executions') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output(/\ACould not list executions\.[^\n]*\n\z/).to_stderr.and output('').to_stdout
+      end
+    end
+
+    context 'when the HTTP 200 response contains an empty array' do
+      let(:response) { instance_double(Net::HTTPOK, body: '[]') }
+
+      it 'prints the empty result and completes successfully' do
+        expect { run_cli('executions') }.to output("No executions found.\n").to_stdout.and output('').to_stderr
+      end
+    end
+  end
+
   def stub_cancellation_response(code, body)
     response = instance_double(Net::HTTPResponse, code: code, body: body)
     transport = instance_double(Net::HTTP, request: response)
