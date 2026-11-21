@@ -14,8 +14,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: .ruby-version
-      - name: Install dependencies
-        run: bundle install --jobs 4
+          bundler-cache: true
       - name: Run lint
         run: bundle exec rubocop
       - name: Build gem
@@ -46,8 +45,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
-      - name: Install dependencies
-        run: bundle install --jobs 4
+          bundler-cache: true
       - name: Run test
         env:
           COVERAGE: ${{ matrix.coverage }}
