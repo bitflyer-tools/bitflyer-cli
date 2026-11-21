@@ -33,7 +33,7 @@ class ExecutionsCommand
     message = response['error_message'].to_s if response.is_a?(Hash)
     detail = message.to_s.empty? ? 'Unexpected response from bitFlyer.' : message
     raise LookupFailed, "Could not list executions. #{detail}"
-  rescue SocketError, SystemCallError, IOError, Timeout::Error, OpenSSL::SSL::SSLError => e
+  rescue SocketError, SystemCallError, IOError, Timeout::Error, OpenSSL::SSL::SSLError, TypeError => e
     raise LookupFailed, "Could not list executions. #{e.message}"
   end
 end
