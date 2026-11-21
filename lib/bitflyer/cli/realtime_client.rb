@@ -58,7 +58,7 @@ module Bitflyer
 
             @websocket_client&.shutdown
             connect
-          rescue SocketError, SystemCallError => e
+          rescue SocketError, SystemCallError, OpenSSL::SSL::SSLError => e
             debug_log e
           ensure
             @lifecycle.unlock
