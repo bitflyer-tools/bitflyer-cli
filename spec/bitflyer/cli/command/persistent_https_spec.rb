@@ -216,7 +216,7 @@ describe 'Persistent exchange HTTPS' do
   end
 
   def json_response(payload)
-    instance_double(Net::HTTPOK, body: JSON.generate(payload))
+    instance_double(Net::HTTPOK, code: '200', body: JSON.generate(payload))
   end
 
   def run_twap(command, slices)
