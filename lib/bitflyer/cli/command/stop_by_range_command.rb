@@ -17,20 +17,24 @@ class StopByRangeCommand
   def run(options)
     raise ArgumentError, 'Range must be positive' unless options.range.positive?
 
-    position = fetch_position
-
-    return puts "You don't have any position now." if position.flat?
-
-    stop = stop_parameters(position, options.range)
+    stop = current_stop(options.range)
     return unless stop
 
     submission = Bitflyer::Cli::StopSubmission.new(api_key, stop)
-    submission.synchronize { place_stop(stop, submission) }
+    submission.synchronize { place_current_stop(options.range, stop, submission) }
   ensure
     close_persistent_http_client
   end
 
   private
+
+  def place_current_stop(range, stop, submission)
+    refreshed_stop = current_stop(range)
+    return unless refreshed_stop
+    raise LookupFailed, 'Position changed before stop placement. Run the command again.' if refreshed_stop != stop
+
+    place_stop(refreshed_stop, submission)
+  end
 
   def place_stop(stop, submission)
     pending = submission.pending
@@ -63,18 +67,16 @@ class StopByRangeCommand
     end
   end
 
-  def stop_parameters(position, range)
+  def current_stop(range)
+    position = fetch_position
+    return puts "You don't have any position now." if position.flat?
+
     size = position_order_size(position)
     return unless size
 
     side = position.size.positive? ? 'SELL' : 'BUY'
-    {
-      product_code: PRODUCT_CODE,
-      condition_type: 'STOP',
-      side: side,
-      trigger_price: position.average + (range * (side == 'BUY' ? 1.0 : -1.0)),
-      size: size
-    }
+    trigger_price = position.average + (range * (side == 'BUY' ? 1.0 : -1.0))
+    { product_code: PRODUCT_CODE, condition_type: 'STOP', side: side, trigger_price: trigger_price, size: size }
   end
 
   def find_parent_order(state, &match_order)

@@ -66,6 +66,14 @@ describe StopByRangeCommand, :stop_state do
         .with(stop_order(side: 'SELL', trigger_price: 995_000.0, size: 0.2))
     end
 
+    it 'aborts when the refreshed position requires a different stop' do
+      reduced_positions = [position(side: 'BUY', price: 1_000_000, size: 0.1)]
+      allow(private_client).to receive(:positions).and_return(positions, reduced_positions)
+
+      expect { run }.to raise_error(StopByRangeCommand::LookupFailed, /Position changed/)
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+
     it 'submits only once when another invocation starts before acceptance is visible' do
       first = second = nil
       posting = Queue.new
@@ -117,6 +125,42 @@ describe StopByRangeCommand, :stop_state do
 
       expect { run }.to output(/Previous stop order.*COMPLETED/).to_stdout
       expect(private_client).to have_received(:send_parent_order).once
+    end
+
+    it 'does not resubmit after another invocation clears a completed stop' do
+      first = second = nil
+      checking_completion = Queue.new
+      second_snapshot = Queue.new
+      expect { run }.to output(/Set stop order/).to_stdout
+      stale_positions = positions
+      allow(private_client).to receive(:positions) do
+        next stale_positions unless Thread.current[:second_stop_run]
+        next [] if Thread.current[:read_stop_position]
+
+        Thread.current[:read_stop_position] = true
+        second_snapshot << true
+        stale_positions
+      end
+      allow(private_client).to receive(:parent_orders).with(hash_including(parent_order_state: 'COMPLETED')) do
+        checking_completion << true
+        second_snapshot.pop
+        [response]
+      end
+
+      expect do
+        Timeout.timeout(5) do
+          first = Thread.new { run }
+          checking_completion.pop
+          second = Thread.new do
+            Thread.current[:second_stop_run] = true
+            run
+          end
+          [first, second].each(&:value)
+        end
+      end.to output(/Previous stop order.*COMPLETED.*You don't have any position now\./m).to_stdout
+      expect(private_client).to have_received(:send_parent_order).once
+    ensure
+      [first, second].compact.each { |thread| thread.kill.join }
     end
 
     it 'allows stops with different parameters while acceptance is pending' do
