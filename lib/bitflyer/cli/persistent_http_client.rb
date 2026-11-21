@@ -5,6 +5,8 @@ require 'bitflyer'
 module Bitflyer
   module Cli
     class PersistentHTTPClient < HTTP::Private::Client
+      PostResponse = Struct.new(:status, :body)
+
       def initialize(key, secret) # rubocop:disable Lint/MissingSuper
         @connection = Connection.new(key, secret)
       end
@@ -31,7 +33,10 @@ module Bitflyer
           body = response.body
           raise Net::HTTPBadResponse, "Empty HTTP response body (status #{response.code})" if body.nil? || body.empty?
 
-          parse_body(body)
+          parsed_body = parse_body(body)
+          return parsed_body unless request.is_a?(Net::HTTP::Post)
+
+          PostResponse.new(response.code.to_i, parsed_body)
         end
       end
       private_constant :Connection

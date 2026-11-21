@@ -99,7 +99,9 @@ describe Bitflyer::Cli::Runner do
 
   describe 'order_by_twap submission results' do
     let!(:private_client) { stub_persistent_client }
-    let(:acceptance) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' } }
+    let(:acceptance) do
+      Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, 'child_order_acceptance_id' => 'JRF20180101-000000-000001')
+    end
 
     before do
       twap = OrderByTWAPCommand.new
@@ -112,7 +114,8 @@ describe Bitflyer::Cli::Runner do
     end
 
     it 'reports all slices and exits unsuccessfully when a middle slice is rejected' do
-      allow(private_client).to receive(:send_child_order).and_return(acceptance, { 'status' => -200 }, acceptance)
+      rejection = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(400, 'status' => -200)
+      allow(private_client).to receive(:send_child_order).and_return(acceptance, rejection, acceptance)
 
       expect do
         expect { start_twap }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }

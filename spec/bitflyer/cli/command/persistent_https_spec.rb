@@ -46,6 +46,32 @@ describe 'Persistent exchange HTTPS' do
     expect(@server.requests.map(&:first)).to eq([1, 1, 2])
   end
 
+  {
+    'an HTML gateway response' => ['<html>Bad Gateway</html>', '502 Bad Gateway'],
+    'a gateway response with an exchange error body' => [{ 'status' => -200 }, '502 Bad Gateway'],
+    'a gateway response with an acceptance ID' => [
+      { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' }, '502 Bad Gateway'
+    ],
+    'a malformed success response' => ['[', '200 OK'],
+    'an empty success response' => ['', '200 OK'],
+    'a success response with only an error message' => [{ 'error_message' => 'Order unavailable' }, '200 OK'],
+    'a success response with a blank acceptance ID' => [{ 'child_order_acceptance_id' => ' ' }, '200 OK'],
+    'a client error without an exchange rejection' => [{}, '400 Bad Request']
+  }.each do |description, (body, status)|
+    it "stops submitting and exits unsuccessfully after #{description}" do
+      start_server { |_path, number| number == 2 ? [body, false, status] : [acceptance, false] }
+
+      expect do
+        expect do
+          Bitflyer::Cli::Runner.start(%w[order_by_twap -a 0.01 -t buy -n 3 -i 0])
+        end.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/1 accepted, 0 rejected, 1 unverified, 1 unattempted\./).to_stdout
+
+      expect(closed_connection).to eq(1)
+      expect(@server.requests.map { |_, method, path| [method, path] }).to eq([['POST', order_path]] * 2)
+    end
+  end
+
   it 'uses one TLS connection for startup and multiple summary refreshes and closes it on interrupt' do
     start_server { |path| [path == positions_path ? [] : { collateral: 50_000 }, false] }
     feed = stub_realtime_client

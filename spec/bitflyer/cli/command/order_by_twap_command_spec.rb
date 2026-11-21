@@ -16,7 +16,7 @@ describe OrderByTWAPCommand do
     allow(private_client).to receive(:send_child_order) do
       submission_times << now
       now += request_durations.fetch(submission_times.length - 1)
-      response
+      Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, response)
     end
   end
 

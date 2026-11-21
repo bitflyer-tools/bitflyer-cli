@@ -108,9 +108,9 @@ For help with credentials, missing prices, and order status, see
 ### TWAP submission results
 
 `bitflyer order_by_twap` reports the number of slices accepted, rejected,
-unverified, and unattempted. If a transport error leaves a slice's acceptance
-unverified, the command stops the schedule without retrying that slice and
-exits with status 1.
+unverified, and unattempted. If a transport error, gateway error, or malformed
+response leaves a slice's acceptance unverified, the command stops the schedule
+without retrying that slice and exits with status 1.
 
 ## Contributing
 
