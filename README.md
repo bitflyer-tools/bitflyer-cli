@@ -37,6 +37,9 @@ bitflyer summary
 
 Press `Ctrl+C` to exit the live display.
 
+See [Getting started](docs/getting-started.md) for a walkthrough of the
+summary display and open orders.
+
 ## Usage
 
 ```
