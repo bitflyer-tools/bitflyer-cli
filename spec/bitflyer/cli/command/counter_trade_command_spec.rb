@@ -102,6 +102,25 @@ describe CounterTradeCommand, :counter_trade_state do
       expect { described_class.new.run }.to raise_error(Errno::EIO)
       expect(private_client).not_to have_received(:send_child_order)
     end
+
+    it 'syncs every new directory entry before sending the first order' do
+      root = Bitflyer::Cli::CounterTradeSubmission.state_directory
+      parent = File.join(root, 'bitflyer-cli')
+      directory = File.join(parent, 'counter-trades')
+      parent_handle = instance_double(File, fsync: 0)
+      root_handle = instance_double(File, fsync: 0)
+      allow(Bitflyer::Cli::CounterTradeSubmission).to receive(:state_directory).and_return(directory)
+      allow(File).to receive(:open).and_call_original
+      allow(File).to receive(:open).with(parent, File::RDONLY).and_yield(parent_handle)
+      allow(File).to receive(:open).with(root, File::RDONLY).and_yield(root_handle)
+      allow(private_client).to receive(:send_child_order) do
+        expect(parent_handle).to have_received(:fsync).once
+        expect(root_handle).to have_received(:fsync).once
+        Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(http_status, accepted)
+      end
+
+      expect { described_class.new.run }.to output("Clear position SELL / 0.3\n").to_stdout
+    end
   end
 
   context 'with a net short position' do

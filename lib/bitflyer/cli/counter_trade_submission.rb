@@ -3,6 +3,7 @@
 require 'digest'
 require 'fileutils'
 require 'json'
+require 'pathname'
 require 'tempfile'
 require 'thor'
 
@@ -48,7 +49,7 @@ module Bitflyer
           file.flush
           file.fsync
           File.rename(file.path, @path)
-          File.open(directory, File::RDONLY, &:fsync)
+          sync_directory_tree(directory)
         end
       end
 
@@ -59,6 +60,15 @@ module Bitflyer
       def require_reconciliation(message)
         raise Thor::Error, "#{message}\nCheck the order and exposure in bitFlyer before retrying. " \
                            "If manual reconciliation is needed, see the counter_trade instructions. Record: #{@path}"
+      end
+
+      private
+
+      def sync_directory_tree(directory)
+        # An existing ancestor may have been created by an interrupted or concurrent run.
+        Pathname.new(File.realpath(directory)).ascend do |path|
+          File.open(path.to_s, File::RDONLY, &:fsync)
+        end
       end
     end
   end
