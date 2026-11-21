@@ -58,6 +58,22 @@ Commands:
 standalone stop for the same market, side, trigger price, and size, it prints
 the existing stop and its parent order ID.
 
+Runs on the same machine and OS account coordinate when they use the same API
+key and stop parameters. The CLI tracks accepted stops in a local submission
+record. It stores records under
+`$XDG_STATE_HOME/bitflyer-cli/stops` (default `~/.local/state/bitflyer-cli/stops`).
+If a connection error or HTTP 5xx response leaves acceptance unverified, the CLI
+exits with status 1 and prints the submission record's path. A retry also exits
+with status 1 while acceptance remains unverified and suppresses resubmission.
+Check the order in bitFlyer before retrying. Once you confirm the outcome, remove
+the unverified record at the path shown by the CLI. Keep the `.lock` files in place.
+
+The CLI retains a completed stop's record so that a stale position snapshot
+cannot trigger a duplicate order with the same parameters. If a new position
+needs a stop with those same parameters, verify the new position and the old
+stop's completion in bitFlyer, then remove the completed record at the path
+shown by the CLI while no `stop_by_range` commands are running.
+
 ### List and cancel open orders
 
 Run `bitflyer open_orders` to see active orders for `FX_BTC_JPY`. The child order list

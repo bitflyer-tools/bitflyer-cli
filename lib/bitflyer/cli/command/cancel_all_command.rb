@@ -14,10 +14,17 @@ class CancelAllCommand
     response = cancel
     return if response.code == '200' && response.body.to_s.empty?
 
-    raise Rejected, api_error(response.body) || "#{UNVERIFIED} (HTTP #{response.code})."
+    raise Rejected, failure_message(response)
   end
 
   private
+
+  def failure_message(response)
+    unverified = "#{UNVERIFIED} (HTTP #{response.code})."
+    return unverified if response.code.to_i.between?(500, 599)
+
+    api_error(response.body) || unverified
+  end
 
   def cancel
     CancellationClient.new(*private_credentials).post('/v1/me/cancelallchildorders', product_code: 'FX_BTC_JPY')
