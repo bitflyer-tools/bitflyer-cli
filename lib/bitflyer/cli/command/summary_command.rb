@@ -98,12 +98,14 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
 
   def update_balance
     position = fetch_position
-    return mark_account_stale unless position
 
     balance = fetch_collateral
     return mark_account_stale if balance.nil?
 
     @account_snapshot = [position, balance, false].freeze
+  rescue HasHTTPClient::PositionLookupFailed => e
+    warn e.message
+    mark_account_stale
   end
 
   def mark_account_stale

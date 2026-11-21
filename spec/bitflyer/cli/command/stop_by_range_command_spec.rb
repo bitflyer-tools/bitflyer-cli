@@ -39,7 +39,8 @@ describe StopByRangeCommand do
 
     it 'reports the API status without constructing a position or sending an order' do
       expect(Position).not_to receive(:new)
-      expect { run }.to output(/Failed to look up positions:.*-200/).to_stderr
+      expect { run }
+        .to raise_error(HasHTTPClient::PositionLookupFailed, /Failed to look up positions:.*-200/)
       expect(private_client).not_to have_received(:send_parent_order)
     end
   end

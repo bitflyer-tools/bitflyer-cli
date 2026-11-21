@@ -7,6 +7,7 @@ require 'bitflyer/cli/model/position'
 module HasHTTPClient
   include Authorization
 
+  class PositionLookupFailed < StandardError; end
   class TickerError < StandardError; end
 
   def http_public_client
@@ -70,10 +71,8 @@ module HasHTTPClient
     positions = http_private_client.positions
     return Position.new(positions) if positions.is_a?(Array)
 
-    warn "Failed to look up positions: #{positions.inspect}"
-    nil
+    raise PositionLookupFailed, "Failed to look up positions: #{positions.inspect}"
   rescue Position::InvalidRowError => e
-    warn "Failed to look up positions: #{e.message}"
-    nil
+    raise PositionLookupFailed, "Failed to look up positions: #{e.message}"
   end
 end
