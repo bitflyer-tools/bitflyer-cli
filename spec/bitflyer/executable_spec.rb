@@ -46,6 +46,52 @@ describe 'bitflyer executable' do
     expect(private_client).not_to have_received(:send_parent_order)
   end
 
+  {
+    %w[counter_trade] => "Your net position is already flat.\n",
+    %w[stop_by_range --range=5000] => "You don't have any position now.\n"
+  }.each do |args, flat_message|
+    context "when #{args.first} reads positions" do
+      before do
+        stub_responses(private_client, positions: positions, send_child_order: {}, send_parent_order: {})
+      end
+
+      after do
+        expect(private_client).not_to have_received(:send_child_order)
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
+      context 'with a rejected lookup' do
+        let(:positions) { { 'status' => -200, 'error_message' => 'Invalid API key' } }
+
+        it 'prints the API error to stderr and exits with status 1' do
+          expect do
+            expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+          end.to output(/Failed to look up positions:.*-200.*Invalid API key/).to_stderr.and output('').to_stdout
+        end
+      end
+
+      context 'with a malformed position row' do
+        let(:positions) { [nil] }
+
+        it 'prints the validation error to stderr and exits with status 1' do
+          expect do
+            expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+          end.to output("Failed to look up positions: row 1: expected an object\n").to_stderr.and output('').to_stdout
+        end
+      end
+
+      context 'with offsetting positions' do
+        let(:positions) do
+          [position(side: 'BUY', price: 1_000_000, size: 0.1), position(side: 'SELL', price: 1_100_000, size: 0.1)]
+        end
+
+        it 'completes normally without placing an order' do
+          expect { run_cli(*args) }.to output('').to_stderr.and output(flat_message).to_stdout
+        end
+      end
+    end
+  end
+
   it 'prints a ticker rejection to stderr and exits unsuccessfully without placing an order' do
     public_client = stub_public_client
     stub_responses(public_client, ticker: { 'status' => -1, 'error_message' => 'Ticker unavailable' })

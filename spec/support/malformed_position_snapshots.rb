@@ -17,7 +17,8 @@ RSpec.shared_examples 'rejects malformed position snapshots' do |order_method|
       end
 
       it 'reports the invalid row and submits no order' do
-        expect { run_command }.to output(/Failed to look up positions: row 2: #{error}/).to_stderr
+        expect { run_command }
+          .to raise_error(HasHTTPClient::PositionLookupFailed, /Failed to look up positions: row 2: #{error}/)
         expect(private_client).not_to have_received(order_method)
       end
     end

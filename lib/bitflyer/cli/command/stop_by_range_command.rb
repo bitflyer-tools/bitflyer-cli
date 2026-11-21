@@ -15,7 +15,6 @@ class StopByRangeCommand
     raise ArgumentError, 'Range must be positive' unless options.range.positive?
 
     position = fetch_position
-    return unless position
 
     return puts "You don't have any position now." if position.flat?
 
