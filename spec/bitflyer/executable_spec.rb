@@ -527,9 +527,9 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       positions = [position(side: 'BUY', price: 1_000_000, size: 0.1)]
       stub_credentials
       allow(transport).to receive(:request).with(an_object_having_attributes(path: %r{\A/v1/me/getpositions\?}))
-                                           .and_return(instance_double(Net::HTTPOK, body: positions.to_json))
+                                           .and_return(instance_double(Net::HTTPOK, code: '200', body: positions.to_json))
       allow(transport).to receive(:request).with(an_object_having_attributes(path: %r{\A/v1/me/getparentorders\?}))
-                                           .and_return(instance_double(Net::HTTPOK, body: '[]'))
+                                           .and_return(instance_double(Net::HTTPOK, code: '200', body: '[]'))
       allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true, keep_alive_timeout: 30)
                                        .and_return(transport)
     end
