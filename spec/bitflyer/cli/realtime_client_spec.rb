@@ -18,9 +18,9 @@ describe Bitflyer::Cli::RealtimeClient do
     stub_const('OpenSSL::SSL::SSLContext::DEFAULT_CERT_STORE', store)
   end
 
-  [SocketError, Errno::ECONNREFUSED].each do |error_class|
+  [SocketError, Errno::ECONNREFUSED, OpenSSL::SSL::SSLError].each do |error_class|
     context "when a reconnect raises #{error_class}" do
-      let(:connection_error) { error_class.new }
+      let(:fail_tls_handshake) { error_class == OpenSSL::SSL::SSLError }
 
       it 'keeps a pending upgrade and resumes the summary feed after a failed reconnect' do
         ticks = Queue.new
@@ -43,7 +43,8 @@ describe Bitflyer::Cli::RealtimeClient do
         stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
         command = SummaryCommand.new
 
-        with_tls_server(connections: 2, upgrades: upgrades, keep_open_connections: 1) do |requests, ready|
+        with_tls_server(connections: 2, upgrades: upgrades, keep_open_connections: 1,
+                        fail_tls_handshake: fail_tls_handshake) do |requests, ready|
           allow(command).to receive(:render) do
             transport = client.websocket_client
             on_disconnect = transport.disconnected
@@ -65,16 +66,7 @@ describe Bitflyer::Cli::RealtimeClient do
             ready << true
             expect(prices_at_disconnect.pop).to eq(1_010_000.0)
             expect(command.send(:fresh_price)).to be_nil
-            failure = connection_error
-            allow(TCPSocket).to receive(:new).and_wrap_original do |connect, *args|
-              if failure
-                error = failure
-                failure = nil
-                raise error
-              end
-
-              connect.call(*args)
-            end
+            stub_tcp_failure(error_class) unless fail_tls_handshake
             steps << true
             ticks.pop
             expect(transport.websocket_client).to equal(connection)
@@ -220,7 +212,18 @@ describe Bitflyer::Cli::RealtimeClient do
     end
   end
 
-  def with_tls_server(issuer: root, issuer_key: root_key, connections: 1, upgrades: nil, keep_open_connections: 0)
+  def stub_tcp_failure(error_class)
+    failure = error_class.new
+    allow(TCPSocket).to receive(:new).and_wrap_original do |connect, *args|
+      error, failure = failure, nil
+      raise error if error
+
+      connect.call(*args)
+    end
+  end
+
+  def with_tls_server(issuer: root, issuer_key: root_key, connections: 1, upgrades: nil, keep_open_connections: 0,
+                      fail_tls_handshake: false)
     context = OpenSSL::SSL::SSLContext.new
     context.cert = certificate(hostname, server_key, issuer: issuer, issuer_key: issuer_key)
     context.key = server_key
@@ -228,12 +231,21 @@ describe Bitflyer::Cli::RealtimeClient do
     ready = Queue.new
     worker = Thread.new do
       connections.times do |index|
+        serve_plain_http if fail_tls_handshake && index == 1
         serve_execution(context, requests, ready, upgrades, index >= connections - keep_open_connections)
       end
     end
     yield requests, ready
   ensure
     worker&.kill&.join
+  end
+
+  def serve_plain_http
+    socket = server.accept
+    socket.readpartial(4096)
+    socket.write("HTTP/1.1 503 Service Unavailable\r\n\r\n")
+  ensure
+    socket&.close
   end
 
   def serve_execution(context, requests, ready, upgrades, keep_open)

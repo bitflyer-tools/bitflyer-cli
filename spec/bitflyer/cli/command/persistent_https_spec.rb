@@ -49,6 +49,9 @@ describe 'Persistent exchange HTTPS' do
   {
     'an HTML gateway response' => ['<html>Bad Gateway</html>', '502 Bad Gateway'],
     'a gateway response with an exchange error body' => [{ 'status' => -200 }, '502 Bad Gateway'],
+    'a gateway response with an acceptance ID' => [
+      { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' }, '502 Bad Gateway'
+    ],
     'a malformed success response' => ['[', '200 OK'],
     'an empty success response' => ['', '200 OK'],
     'a success response with only an error message' => [{ 'error_message' => 'Order unavailable' }, '200 OK'],
@@ -99,6 +102,49 @@ describe 'Persistent exchange HTTPS' do
     expect(@server.requests.map { |id, method, path| [id, method, path] })
       .to eq([[1, 'GET', positions_path], [1, 'GET', collateral_path]] * 3)
     expect_signed_requests
+  end
+
+  it 'renders the last complete snapshot as stale after a bodyless 503 and recovers on the next poll' do
+    http = instance_double(Net::HTTP, started?: false)
+    allow(Net::HTTP).to receive(:start).and_return(http)
+    positions = [[position(side: 'BUY', price: 1_000_000, size: 0.1)],
+                 [position(side: 'BUY', price: 1_000_000, size: 0.2)]]
+    allow(http).to receive(:request).with(an_object_having_attributes(path: positions_path))
+                                   .and_return(*positions.map { |rows| json_response(rows) })
+    unavailable = instance_double(Net::HTTPServiceUnavailable, body: nil, code: '503')
+    allow(http).to receive(:request).with(an_object_having_attributes(path: collateral_path))
+                                   .and_return(json_response(collateral: 50_000), unavailable,
+                                               json_response(collateral: 60_000))
+    feed = stub_realtime_client
+    allow(feed).to receive(:disconnected=)
+    allow(feed).to receive(:executions_fx_btc_jpy=) { |callback| callback.call([{ 'price' => 1_000_000 }]) }
+
+    command = SummaryCommand.new
+    poller = nil
+    allow(Thread).to receive(:new) do |&poll|
+      poller = Fiber.new(&poll)
+      poller.resume
+      instance_double(Thread, kill: nil)
+    end
+    allow(command).to receive(:sleep).with(5) { Fiber.yield }
+    expect(command).to receive(:sleep).with(0.1).exactly(3).times.and_invoke(
+      ->(_) { poller.resume },
+      ->(_) { poller.resume },
+      ->(_) { raise Interrupt }
+    )
+
+    expect { command.run }.to output(satisfy do |output|
+      initial, stale, recovered = output.split("\e[4F\e[0J").drop(1)
+      expect(initial).to include('Position: 1,000,000 * 0.1', 'Balance:  50,000')
+      expect(initial).not_to include('[stale]')
+      expect(stale).to include('Position: 1,000,000 * 0.1', 'Balance:  50,000', '[stale]')
+      expect(recovered).to include('Position: 1,000,000 * 0.2', 'Balance:  60,000')
+      expect(recovered).not_to include('[stale]')
+    end).to_stdout
+  end
+
+  def json_response(payload)
+    instance_double(Net::HTTPOK, body: JSON.generate(payload))
   end
 
   def run_twap(command, slices)

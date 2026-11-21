@@ -30,10 +30,13 @@ module Bitflyer
           # Net::HTTP reconnects before sending when it detects a closed socket.
           # Its transport retries apply only to idempotent methods, excluding POST.
           response = @http.request(request)
-          body = parse_body(response.body.to_s)
-          return body unless request.is_a?(Net::HTTP::Post)
+          body = response.body
+          raise Net::HTTPBadResponse, "Empty HTTP response body (status #{response.code})" if body.nil? || body.empty?
 
-          PostResponse.new(response.code.to_i, body)
+          parsed_body = parse_body(body)
+          return parsed_body unless request.is_a?(Net::HTTP::Post)
+
+          PostResponse.new(response.code.to_i, parsed_body)
         end
       end
       private_constant :Connection

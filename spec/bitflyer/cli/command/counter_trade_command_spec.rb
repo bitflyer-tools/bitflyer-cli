@@ -51,7 +51,8 @@ describe CounterTradeCommand do
 
     it 'reports the API error without constructing a position or sending an order' do
       expect(Position).not_to receive(:new)
-      expect { described_class.new.run }.to output(/Failed to look up positions:.*-200.*Invalid API key/).to_stderr
+      expect { described_class.new.run }
+        .to raise_error(HasHTTPClient::PositionLookupFailed, /Failed to look up positions:.*-200.*Invalid API key/)
       expect(private_client).not_to have_received(:send_child_order)
     end
   end
