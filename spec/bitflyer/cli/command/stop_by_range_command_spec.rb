@@ -118,16 +118,18 @@ describe StopByRangeCommand, :stop_state do
       expect(private_client).to have_received(:send_parent_order).twice
     end
 
-    it 'does not replace a completed stop using the current position snapshot' do
+    it 'does not replace a completed stop across two runs with the same stale position' do
       expect { run }.to output(/Set stop order/).to_stdout
       allow(private_client).to receive(:parent_orders)
-        .with(hash_including(parent_order_state: 'COMPLETED')).and_return([response])
+        .with(hash_including(parent_order_state: 'COMPLETED')).and_return([response], [])
 
-      expect { run }.to output(/Previous stop order.*COMPLETED/).to_stdout
+      2.times do
+        expect { run }.to output(/Previous stop order.*#{response.values.first}.*COMPLETED/).to_stdout
+      end
       expect(private_client).to have_received(:send_parent_order).once
     end
 
-    it 'does not resubmit after another invocation clears a completed stop' do
+    it 'does not resubmit when the position disappears while another invocation checks completion' do
       first = second = nil
       checking_completion = Queue.new
       second_snapshot = Queue.new
@@ -202,8 +204,23 @@ describe StopByRangeCommand, :stop_state do
         expect(private_client).to have_received(:send_parent_order).once
 
         stub_responses(private_client, parent_orders: [])
+        allow(private_client).to receive(:parent_orders)
+          .with(hash_including(parent_order_state: 'CANCELED')).and_return([response])
         expect { run }.to output(/Set stop order/).to_stdout
         expect(private_client).to have_received(:send_parent_order).twice
+      end
+
+      it 'remembers the acceptance ID after the stop becomes active and then completes' do
+        expect { run }.to output(/Set stop order/).to_stdout
+        allow(private_client).to receive(:parent_orders)
+          .with(hash_including(parent_order_state: 'ACTIVE')).and_return([parent.merge(response)], [])
+        stub_parent_detail
+
+        expect { run }.to output(/Existing stop order/).to_stdout
+        allow(private_client).to receive(:parent_orders)
+          .with(hash_including(parent_order_state: 'COMPLETED')).and_return([response])
+        expect { run }.to output(/Previous stop order.*COMPLETED/).to_stdout
+        expect(private_client).to have_received(:send_parent_order).once
       end
 
       it 'checks subsequent pages for a matching stop' do

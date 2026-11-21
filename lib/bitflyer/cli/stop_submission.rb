@@ -12,6 +12,7 @@ module Bitflyer
       class Unverified < StandardError; end
 
       UNVERIFIED = 'unverified'
+      COMPLETED_PREFIX = 'completed:'
 
       attr_reader :path
 
@@ -40,6 +41,18 @@ module Bitflyer
         value.strip.empty? ? UNVERIFIED : value
       rescue Errno::ENOENT
         nil
+      end
+
+      def reconcile(acceptance_id)
+        return [acceptance_id, nil] if acceptance_id == UNVERIFIED
+        if acceptance_id.start_with?(COMPLETED_PREFIX)
+          return [acceptance_id.delete_prefix(COMPLETED_PREFIX), 'COMPLETED']
+        end
+
+        state = yield
+        record("#{COMPLETED_PREFIX}#{acceptance_id}") if state == 'COMPLETED'
+        clear if state && state != 'COMPLETED'
+        [acceptance_id, state]
       end
 
       def record(value)

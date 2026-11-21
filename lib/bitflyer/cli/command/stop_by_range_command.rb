@@ -40,7 +40,6 @@ class StopByRangeCommand
     pending = submission.pending
     description = stop.values_at(:side, :trigger_price, :size).join(' / ')
     if (order = find_parent_order('ACTIVE') { |entry| matching_stop?(entry, stop) })
-      submission.clear if pending && order[ACCEPTANCE_ID] == pending
       return puts "Existing stop order #{description} (#{order.fetch('parent_order_id')})"
     end
 
@@ -50,18 +49,16 @@ class StopByRangeCommand
   end
 
   def pending_stop?(submission, pending, description)
-    state = terminal_state(pending)
-    submission.clear if state
+    id, state = submission.reconcile(pending) { terminal_state(pending) }
     return false if state && state != 'COMPLETED'
 
-    puts "Previous stop order #{description} (#{pending}): #{state || 'awaiting confirmation'}"
-    puts "Unverified submission record: #{submission.path}" if pending == Bitflyer::Cli::StopSubmission::UNVERIFIED
+    puts "Previous stop order #{description} (#{id}): #{state || 'awaiting confirmation'}"
+    puts "Completed submission record: #{submission.path}" if state == 'COMPLETED'
+    puts "Unverified submission record: #{submission.path}" if id == Bitflyer::Cli::StopSubmission::UNVERIFIED
     true
   end
 
   def terminal_state(pending)
-    return if pending == Bitflyer::Cli::StopSubmission::UNVERIFIED
-
     TERMINAL_STATES.find do |state|
       find_parent_order(state) { |order| order[ACCEPTANCE_ID] == pending }
     end
