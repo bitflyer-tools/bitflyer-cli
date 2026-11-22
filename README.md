@@ -88,7 +88,11 @@ fields leave acceptance unverified, the CLI exits with status 1 and prints the
 submission record's path. While acceptance remains unverified, a retry exits
 with status 1 and suppresses resubmission.
 Check the order in bitFlyer before retrying. Once you confirm the outcome, remove
-the unverified record at the path shown by the CLI. Keep the `.lock` files in place.
+the unverified record at the path shown by the CLI. The CLI uses up to 64
+persistent `slot-*.lock` files in this directory. Keep those files in place.
+When upgrading from a version that uses one lock file per stop, finish all
+running `stop_by_range` commands before using the new version. You can then
+remove the older lock files whose names are a SHA-256 digest followed by `.lock`.
 
 The CLI retains a completed stop's record so that a stale position snapshot
 cannot trigger a duplicate order with the same parameters. If a new position

@@ -13,6 +13,7 @@ module Bitflyer
 
       UNVERIFIED = 'unverified'
       COMPLETED_PREFIX = 'completed:'
+      LOCK_COUNT = 64
 
       attr_reader :path
 
@@ -24,12 +25,14 @@ module Bitflyer
 
       def initialize(api_key, stop)
         key = Digest::SHA256.hexdigest([api_key, *stop.values].to_json)
-        @path = File.join(self.class.state_directory, key)
+        directory = self.class.state_directory
+        @path = File.join(directory, key)
+        @lock_path = File.join(directory, "slot-#{key.to_i(16) % LOCK_COUNT}.lock")
       end
 
       def synchronize
         FileUtils.mkdir_p(File.dirname(@path), mode: 0o700)
-        File.open("#{@path}.lock", File::RDWR | File::CREAT | File::NOFOLLOW, 0o600) do |lock|
+        File.open(@lock_path, File::RDWR | File::CREAT | File::NOFOLLOW, 0o600) do |lock|
           raise IOError, "Could not lock stop submission: #{@path}" unless lock.flock(File::LOCK_EX)
 
           yield
