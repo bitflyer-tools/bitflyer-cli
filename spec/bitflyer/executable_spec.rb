@@ -371,6 +371,40 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     transport
   end
 
+  [
+    ['200', '', nil, nil],
+    ['400', '{"status":-200}', 'Cancel-all request rejected (status -200)',
+     'Cancellation request rejected (status -200).'],
+    ['400', '{"status":-200,"error_message":"Order is inactive."}', 'Order is inactive.',
+     'Cancellation request rejected. Order is inactive.'],
+    ['400', '{"error_message":"unexpected reply"}', 'Could not verify cancel-all acceptance from bitFlyer (HTTP 400).',
+     'Could not verify cancellation acceptance from bitFlyer.'],
+    ['400', '{"status":-200.0,"error_message":"unexpected reply"}',
+     'Could not verify cancel-all acceptance from bitFlyer (HTTP 400).',
+     'Could not verify cancellation acceptance from bitFlyer.'],
+    ['503', '{"status":-200,"error_message":"Service unavailable."}',
+     'Could not verify cancel-all acceptance from bitFlyer (HTTP 503).',
+     'Could not verify cancellation acceptance from bitFlyer (HTTP 503).']
+  ].each do |code, body, cancel_all_error, cancel_order_error|
+    { %w[cancel_all] => cancel_all_error, %w[cancel_order child JOR-test] => cancel_order_error }.each do |args, error|
+      it "classifies HTTP #{code} with #{body.inspect} for #{args.first}" do
+        stub_credentials
+        transport = stub_cancellation_response(code, body)
+
+        if error
+          expect do
+            expect { run_cli(*args) }.to raise_error(SystemExit) { |exit| expect(exit.status).to eq(1) }
+          end.to output("#{error}\n").to_stderr.and output('').to_stdout
+        else
+          success = args.first == 'cancel_all' ? '' : "Cancellation request accepted for child order JOR-test.\n"
+          expect { run_cli(*args) }.to output(success).to_stdout.and output('').to_stderr
+        end
+
+        expect(transport).to have_received(:request).once
+      end
+    end
+  end
+
   def expect_cancellation_request(transport, type, id)
     expect(transport).to have_received(:request).once do |request|
       expect(request).to be_a(Net::HTTP::Post)
