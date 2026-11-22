@@ -42,6 +42,8 @@ summary display and open orders.
 
 ## Usage
 
+See the [command reference](docs/reference.md) for options and environment variables.
+
 ```
 Commands:
   bitflyer cancel_all                                          # cancel all of orders
