@@ -52,7 +52,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     %w[stop_by_range --range=5000] => "You don't have any position now.\n"
   }.each do |args, flat_message|
     context "when #{args.first} reads positions" do
-      let(:private_client) { args.first == 'stop_by_range' ? stub_persistent_client : stub_private_client }
+      let(:private_client) { stub_persistent_client }
 
       before do
         stub_responses(private_client, positions: positions, send_child_order: {}, send_parent_order: {})
@@ -527,17 +527,12 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
   end
 
   context 'when reconciling a counter trade through the CLI' do
-    let(:private_client) do
-      stub_credentials
-      instance_double(Bitflyer::HTTP::Private::Client).tap do |client|
-        allow(Bitflyer).to receive(:http_private_client).with('key', 'secret').and_return(client)
-      end
-    end
     let(:transport) { instance_double(Net::HTTP, started?: false) }
     let(:acceptance_id) { 'JRF20180101-000000-000001' }
 
     before do
-      allow(private_client).to receive(:positions).and_return([position(side: 'BUY', price: 1_000_000, size: 0.2)])
+      stub_credentials
+      stub_counter_trade_position(0.2)
       allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true, keep_alive_timeout: 30)
                                        .and_return(transport)
       allow(transport).to receive(:request).with(an_object_having_attributes(path: '/v1/me/sendchildorder'))
@@ -549,6 +544,13 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       instance_double(Net::HTTPResponse, code: status.to_s, body: JSON.generate(body))
     end
 
+    def stub_counter_trade_position(size)
+      path = '/v1/me/getpositions?product_code=FX_BTC_JPY'
+      positions = [position(side: 'BUY', price: 1_000_000, size: size)]
+      allow(transport).to receive(:request).with(an_object_having_attributes(path: path))
+                                          .and_return(order_response(200, positions))
+    end
+
     def stub_order_lookup(response)
       path = "/v1/me/getchildorders?product_code=FX_BTC_JPY&child_order_acceptance_id=#{acceptance_id}"
       allow(transport).to receive(:request).with(an_object_having_attributes(path: path)).and_return(response)
@@ -557,7 +559,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     it 'sizes the next offset from the exposure left by a terminal partial fill' do
       order = { 'child_order_acceptance_id' => acceptance_id, 'child_order_state' => 'CANCELED', 'executed_size' => 0.05 }
       stub_order_lookup(order_response(200, [order]))
-      allow(private_client).to receive(:positions).and_return([position(side: 'BUY', price: 1_000_000, size: 0.15)])
+      stub_counter_trade_position(0.15)
 
       expect { run_cli('counter_trade') }.to output("Clear position SELL / 0.15\n").to_stdout
       expect(transport).to have_received(:request).with(

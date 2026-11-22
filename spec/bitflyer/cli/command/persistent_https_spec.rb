@@ -146,6 +146,72 @@ describe 'Persistent exchange HTTPS' do
     end
   end
 
+  context 'when offsetting a position', :counter_trade_state do
+    let(:position_rows) { [position(side: 'BUY', price: 1_000_000, size: 0.1)] }
+    let(:acceptance_id) { acceptance.fetch('child_order_acceptance_id') }
+    let(:previous_order_path) do
+      "/v1/me/getchildorders?product_code=FX_BTC_JPY&child_order_acceptance_id=#{acceptance_id}"
+    end
+    let(:submission) { Bitflyer::Cli::CounterTradeSubmission.new('FX_BTC_JPY', 'key') }
+
+    it 'reads the position and submits the offset on one TLS connection' do
+      start_server { |path| [path == positions_path ? position_rows : acceptance, false] }
+
+      expect { CounterTradeCommand.new.run }.to output("Clear position SELL / 0.1\n").to_stdout
+
+      expect_counter_trade_requests([[1, 'GET', positions_path], [1, 'POST', order_path]])
+    end
+
+    {
+      '401 Unauthorized' => 'Invalid API key',
+      '503 Service Unavailable' => 'Positions unavailable'
+    }.each do |status, message|
+      it "prints the position lookup error for HTTP #{status} and exits without trading" do
+        body = { 'status' => -200, 'error_message' => message }
+        start_server { [body, false, status] }
+        stub_const('ARGV', %w[counter_trade])
+
+        expect do
+          expect { load File.expand_path('../../../../exe/bitflyer', __dir__) }
+            .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Failed to look up positions: #{body.inspect}\n").to_stderr.and output('').to_stdout
+
+        expect_counter_trade_requests([[1, 'GET', positions_path]])
+        expect(submission.pending).to be_nil
+      end
+    end
+
+    it 'looks up the previous fill and confirms the resulting exposure on one TLS connection' do
+      start_reconciliation_server([])
+
+      expect { CounterTradeCommand.new.run }.to output("You don't have any position now.\n").to_stdout
+
+      expect_counter_trade_requests([[1, 'GET', previous_order_path], [1, 'GET', positions_path]])
+      expect(submission.pending).to be_nil
+    end
+
+    it 'keeps the record and suppresses another order while exposure is stale' do
+      start_reconciliation_server(position_rows)
+
+      expect { CounterTradeCommand.new.run }.to raise_error(Thor::Error, /exposure is not confirmed/)
+
+      expect_counter_trade_requests([[1, 'GET', previous_order_path], [1, 'GET', positions_path]])
+      expect(submission.pending).to include('acceptance_id' => acceptance_id)
+    end
+
+    def start_reconciliation_server(positions)
+      submission.record(BigDecimal('0.1'), acceptance_id)
+      fill = acceptance.merge('child_order_state' => 'COMPLETED', 'executed_size' => 0.1)
+      start_server { |path| [path == positions_path ? positions : [fill], false] }
+    end
+
+    def expect_counter_trade_requests(requests)
+      expect(closed_connection).to eq(1)
+      expect(@server.requests.map { |id, method, path| [id, method, path] }).to eq(requests)
+      expect_signed_requests
+    end
+  end
+
   it 'uses one TLS connection for startup and multiple summary refreshes and closes it on interrupt' do
     start_server { |path| [path == positions_path ? [] : { collateral: 50_000 }, false] }
     feed = stub_realtime_client
@@ -230,9 +296,9 @@ describe 'Persistent exchange HTTPS' do
     store = OpenSSL::X509::Store.new
     store.add_cert(@server.certificate)
     stub_const('Bitflyer::HTTP::BASE_URL', @server.url)
-    allow(Net::HTTP).to receive(:start).and_wrap_original do |original, host, port, **options|
+    allow(Net::HTTP).to receive(:start).and_wrap_original do |original, host, port, **options, &session|
       expect([host, port]).to eq(['127.0.0.1', URI(@server.url).port])
-      original.call(host, port, nil, options.merge(cert_store: store, open_timeout: 2, read_timeout: 2))
+      original.call(host, port, nil, options.merge(cert_store: store, open_timeout: 2, read_timeout: 2), &session)
     end
   end
 

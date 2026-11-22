@@ -7,6 +7,15 @@ module Bitflyer
     class PersistentHTTPClient < HTTP::Private::Client
       PostResponse = Struct.new(:status, :body)
 
+      class GetResponseError < Net::HTTPBadResponse
+        attr_reader :api_error
+
+        def initialize(status, body)
+          super("HTTP request failed (status #{status})")
+          @api_error = body.inspect if body.is_a?(Hash)
+        end
+      end
+
       def initialize(key, secret) # rubocop:disable Lint/MissingSuper
         @connection = Connection.new(key, secret)
       end
@@ -48,7 +57,7 @@ module Bitflyer
 
           return parsed_body if status.between?(200, 299)
 
-          raise Net::HTTPBadResponse, "HTTP request failed (status #{status})"
+          raise GetResponseError.new(status, parsed_body)
         end
       end
       private_constant :Connection

@@ -8,6 +8,8 @@ require 'bitflyer/cli/persistent_http_client'
 class CounterTradeCommand
   include HasHTTPClient
 
+  alias http_private_client persistent_http_client
+
   PRODUCT_CODE = 'FX_BTC_JPY'
   ACCEPTANCE_ID = 'child_order_acceptance_id'
   COMMUNICATION_ERRORS = [
@@ -28,6 +30,9 @@ class CounterTradeCommand
   def trade(submission, pending)
     position = pending ? reconcile_position(submission, pending) : fetch_position
     place_order(submission, position)
+  rescue Net::HTTPBadResponse => e
+    detail = e.api_error if e.is_a?(Bitflyer::Cli::PersistentHTTPClient::GetResponseError)
+    raise PositionLookupFailed, "Failed to look up positions: #{detail || e.message}"
   end
 
   def reconcile_position(submission, pending)
