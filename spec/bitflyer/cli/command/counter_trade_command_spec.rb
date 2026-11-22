@@ -21,9 +21,12 @@ describe 'Loading the counter trade command on its own' do
         Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, { 'child_order_acceptance_id' => 'accepted' })
       end
 
+      def client.close
+        puts 'Client closed'
+      end
+
+      Bitflyer::Cli::PersistentHTTPClient.define_singleton_method(:new) { |*, **| client }
       command = CounterTradeCommand.new
-      command.define_singleton_method(:http_private_client) { client }
-      command.define_singleton_method(:persistent_http_client) { client }
       command.run
 
       other_commands = $LOADED_FEATURES.grep(%r{/bitflyer/cli/command/(?!counter_trade_command\.rb\z)})
@@ -32,11 +35,12 @@ describe 'Loading the counter trade command on its own' do
 
     lib = File.expand_path('../../../../lib', __dir__)
     stdout, stderr, status = Dir.mktmpdir do |directory|
-      Open3.capture3({ 'XDG_STATE_HOME' => directory }, RbConfig.ruby, '-I', lib, '-e', script)
+      env = { 'XDG_STATE_HOME' => directory, 'BITFLYER_API_KEY' => 'key', 'BITFLYER_API_SECRET' => 'secret' }
+      Open3.capture3(env, RbConfig.ruby, '-I', lib, '-e', script)
     end
 
     expect(status.success?).to be(true), stdout + stderr
-    expect(stdout).to eq("Clear position SELL / 0.1\n")
+    expect(stdout).to eq("Clear position SELL / 0.1\nClient closed\n")
   end
 end
 
@@ -223,6 +227,23 @@ describe CounterTradeCommand, :counter_trade_state do
       expect { described_class.new.run }.to raise_error(Thor::Error, /original API key/)
       expect(private_client).to have_received(:send_child_order).once
     end
+
+    it 'keeps reconciling a completed offset after a failed position lookup' do
+      acceptance_id = accepted.fetch('child_order_acceptance_id')
+      completed = accepted.merge('child_order_state' => 'COMPLETED', 'executed_size' => 0.2)
+      allow(private_client).to receive(:child_order_by_acceptance_id)
+        .with(product_code: 'FX_BTC_JPY', child_order_acceptance_id: acceptance_id).and_return([completed])
+      allow(private_client).to receive(:positions)
+        .and_return(positions, { 'status' => -200, 'error_message' => 'Positions unavailable' }, [])
+
+      expect { described_class.new.run }.to output(/Clear position/).to_stdout
+      expect { described_class.new.run }
+        .to raise_error(Thor::Error, /Could not confirm exposure after the previous counter trade:.*Positions unavailable/)
+      expect { described_class.new.run }.to output("You don't have any position now.\n").to_stdout
+
+      expect(private_client).to have_received(:child_order_by_acceptance_id).twice
+      expect(private_client).to have_received(:send_child_order).once
+    end
   end
 
 end
@@ -260,9 +281,12 @@ describe 'Concurrent counter trades' do
            'child_order_state' => 'COMPLETED', 'executed_size' => 0.2 }]
       end
 
+      def client.close
+        puts 'Client closed'
+      end
+
+      Bitflyer::Cli::PersistentHTTPClient.define_singleton_method(:new) { |*, **| client }
       command = CounterTradeCommand.new
-      command.define_singleton_method(:http_private_client) { client }
-      command.define_singleton_method(:persistent_http_client) { client }
       if ENV.fetch('PHASE') == 'pending'
         lock = File.join(Bitflyer::Cli::CounterTradeSubmission.state_directory, 'FX_BTC_JPY.json.lock')
         File.open(lock, 'r+') do |file|
@@ -282,7 +306,8 @@ describe 'Concurrent counter trades' do
     lib = File.expand_path('../../../../lib', __dir__)
     Dir.mktmpdir do |directory|
       log = File.join(directory, 'orders')
-      env = { 'XDG_STATE_HOME' => directory, 'ORDER_LOG' => log, 'BITFLYER_API_KEY' => 'key' }
+      env = { 'XDG_STATE_HOME' => directory, 'ORDER_LOG' => log,
+              'BITFLYER_API_KEY' => 'key', 'BITFLYER_API_SECRET' => 'secret' }
       command = [RbConfig.ruby, '-I', lib, '-e', script]
 
       Timeout.timeout(15) do
@@ -293,20 +318,23 @@ describe 'Concurrent counter trades' do
             expect(second_out.gets).to eq("Ready\n")
             input.puts 'Continue'
             expect(first.value).to be_success, errors.read
+            expect(output.read).to eq("Clear position SELL / 0.2\nClient closed\n")
             expect(second.value.exitstatus).to eq(1)
+            expect(second_out.read).to eq("Client closed\n")
             expect(second_err.read).to include('awaiting reconciliation')
           ensure
             input.close
           end
         end
 
-        _, stderr, status = Open3.capture3(env.merge('PHASE' => 'stale'), *command)
+        stdout, stderr, status = Open3.capture3(env.merge('PHASE' => 'stale'), *command)
         expect(status.exitstatus).to eq(1)
+        expect(stdout).to eq("Ready\nClient closed\n")
         expect(stderr).to include('exposure is not confirmed')
 
         stdout, stderr, status = Open3.capture3(env.merge('PHASE' => 'visible'), *command)
         expect(status).to be_success, stderr
-        expect(stdout).to include("You don't have any position now.")
+        expect(stdout).to eq("Ready\nYou don't have any position now.\nClient closed\n")
         expect(File.readlines(log)).to eq(["SELL 0.2\n"])
       end
     end

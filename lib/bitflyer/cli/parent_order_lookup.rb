@@ -4,6 +4,7 @@ module Bitflyer
   module Cli
     class ParentOrderLookup
       class LookupFailed < StandardError; end
+      class RequestLimitExceeded < StandardError; end
 
       PAGE_SIZE = 100
 
@@ -12,9 +13,10 @@ module Bitflyer
         @product_code = product_code
       end
 
-      def find(state, &match_order)
+      def find(state, before_page: nil, &match_order)
         before = nil
         loop do
+          before_page&.call
           orders = parent_orders(state, before)
           match = orders.find(&match_order)
           return match if match
@@ -22,6 +24,15 @@ module Bitflyer
 
           before = next_cursor(orders, before)
         end
+      end
+
+      def find_state(states, max_requests:, &match_order)
+        before_page = lambda do
+          raise RequestLimitExceeded if max_requests.zero?
+
+          max_requests -= 1
+        end
+        states.find { |state| find(state, before_page: before_page, &match_order) }
       end
 
       private

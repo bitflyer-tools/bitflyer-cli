@@ -14,6 +14,7 @@ class StopByRangeCommand
   LookupFailed = Bitflyer::Cli::ParentOrderLookup::LookupFailed
 
   PRODUCT_CODE = 'FX_BTC_JPY'
+  HISTORY_REQUEST_LIMIT = 10
   TERMINAL_STATES = %w[CANCELED EXPIRED REJECTED COMPLETED].freeze
   ACCEPTANCE_ID = 'parent_order_acceptance_id'
 
@@ -55,16 +56,15 @@ class StopByRangeCommand
   end
 
   def find_active_stop(stop, submission, pending)
-    find_parent_order('ACTIVE') { |entry| matching_stop?(entry, stop) }
-  rescue Timeout::Error, SocketError, SystemCallError, IOError,
-         OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError => e
+    parent_order_lookup.find('ACTIVE') { |entry| matching_stop?(entry, stop) }
+  rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
     message = "Failed to look up active parent orders: #{e.message}."
     submission.raise_unverified(message) if pending == Bitflyer::Cli::StopSubmission::UNVERIFIED
     raise LookupFailed, message
   end
 
   def pending_stop?(submission, pending, description)
-    id, state = submission.reconcile(pending) { terminal_state(pending) }
+    id, state = submission.reconcile(pending) { terminal_state(pending, submission.path) }
     return false if state && state != 'COMPLETED'
 
     if id == Bitflyer::Cli::StopSubmission::UNVERIFIED
@@ -76,10 +76,13 @@ class StopByRangeCommand
     true
   end
 
-  def terminal_state(pending)
-    TERMINAL_STATES.find do |state|
-      find_parent_order(state) { |order| order[ACCEPTANCE_ID] == pending }
+  def terminal_state(pending, record_path)
+    parent_order_lookup.find_state(TERMINAL_STATES, max_requests: HISTORY_REQUEST_LIMIT) do |order|
+      order[ACCEPTANCE_ID] == pending
     end
+  rescue Bitflyer::Cli::ParentOrderLookup::RequestLimitExceeded
+    raise Thor::Error, "Stop order #{pending} still requires reconciliation after " \
+                       "#{HISTORY_REQUEST_LIMIT} history requests. Submission record: #{record_path}"
   end
 
   def current_stop(range)
@@ -106,12 +109,13 @@ class StopByRangeCommand
     raise Thor::Error, 'Stop trigger price must be positive and finite.'
   end
 
-  def find_parent_order(state, &)
-    Bitflyer::Cli::ParentOrderLookup.new(http_private_client, PRODUCT_CODE).find(state, &)
+  def parent_order_lookup
+    Bitflyer::Cli::ParentOrderLookup.new(http_private_client, PRODUCT_CODE)
   end
 
   def matching_stop?(order, stop)
     return false unless order['parent_order_type'] == 'STOP'
+    return false if order['side'] == (stop.fetch(:side) == 'BUY' ? 'SELL' : 'BUY')
 
     detail = parent_order_detail(order.fetch('parent_order_id'))
     parameters = detail.fetch('parameters')
