@@ -46,7 +46,8 @@ class OrderByTWAPCommand
   end
 
   def validate_interval!(interval)
-    raise Thor::MalformattedArgumentError, '--interval must be finite and >= 0' unless interval.finite? && interval >= 0
+    # Keep waits representable with signed 32-bit seconds.
+    raise Thor::MalformattedArgumentError, '--interval must be 0..2147483647' unless interval.between?(0, (2**31) - 1)
   end
 
   def submit_on_schedule(number, interval)
