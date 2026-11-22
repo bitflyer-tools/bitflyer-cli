@@ -585,6 +585,24 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       end
     end
 
+    it 'reports the pending record on a retry when the active order lookup returns a bodyless 503' do
+      stop = { product_code: 'FX_BTC_JPY', condition_type: 'STOP', side: 'SELL', trigger_price: 995_000.0, size: 0.1 }
+      submission = Bitflyer::Cli::StopSubmission.new('key', stop)
+      File.write(submission.path, 'unverified')
+      unavailable = instance_double(Net::HTTPServiceUnavailable, code: '503', body: nil)
+      allow(transport).to receive(:request).with(an_object_having_attributes(path: %r{\A/v1/me/getparentorders\?}))
+                                           .and_return(unavailable)
+      diagnostic = "Failed to look up active parent orders: Empty HTTP response body (status 503).\n" \
+                   "Check the order in bitFlyer before retrying. Once you confirm the outcome, " \
+                   "remove the unverified submission record at:\n#{submission.path}\n"
+
+      expect do
+        expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(diagnostic).to_stderr.and output('').to_stdout
+      expect(File.read(submission.path)).to eq('unverified')
+      expect(transport).not_to have_received(:request).with(instance_of(Net::HTTP::Post))
+    end
+
     def record_path
       %r{#{Regexp.escape(@stop_state_directory)}/[0-9a-f]{64}}
     end

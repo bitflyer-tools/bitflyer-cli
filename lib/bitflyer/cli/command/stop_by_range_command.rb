@@ -42,13 +42,22 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
   def place_stop(stop, submission)
     pending = submission.pending
     description = stop.values_at(:side, :trigger_price, :size).join(' / ')
-    if (order = find_parent_order('ACTIVE') { |entry| matching_stop?(entry, stop) })
+    if (order = find_active_stop(stop, submission, pending))
       return puts "Existing stop order #{description} (#{order.fetch('parent_order_id')})"
     end
 
     return if pending && pending_stop?(submission, pending, description)
 
     submit_stop(stop, description, submission)
+  end
+
+  def find_active_stop(stop, submission, pending)
+    find_parent_order('ACTIVE') { |entry| matching_stop?(entry, stop) }
+  rescue Timeout::Error, SocketError, SystemCallError, IOError,
+         OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError => e
+    message = "Failed to look up active parent orders: #{e.message}."
+    submission.raise_unverified(message) if pending == Bitflyer::Cli::StopSubmission::UNVERIFIED
+    raise LookupFailed, message
   end
 
   def pending_stop?(submission, pending, description)
