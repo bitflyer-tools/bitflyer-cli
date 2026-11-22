@@ -80,6 +80,46 @@ describe StopByRangeCommand, :stop_state do
         .with(stop_order(side: 'SELL', trigger_price: 995_000.0, size: 0.2)).once
     end
 
+    it 'renames the unverified record and syncs the directory tree before the first POST' do
+      root = File.realpath(@stop_state_directory)
+      directory = File.join(root, 'bitflyer-cli', 'stops')
+      store = Bitflyer::Cli::StopSubmission
+      allow(store).to receive(:state_directory).and_return(directory)
+      synced = []
+      allow(File).to receive(:open).and_wrap_original do |open, path, *args, **kwargs, &block|
+        next open.call(path, *args, **kwargs, &block) unless args == [File::RDONLY] && kwargs.empty?
+
+        records = Dir.children(directory).reject { |name| name.end_with?('.lock') }
+        expect(records).to contain_exactly(match(/\A[0-9a-f]{64}\z/))
+        expect(File.read(File.join(directory, records.first))).to eq('unverified')
+        open.call(path, *args) do |handle|
+          allow(handle).to receive(:fsync).and_wrap_original do |fsync|
+            fsync.call.tap { synced << path }
+          end
+          block.call(handle)
+        end
+      end
+      allow(private_client).to receive(:send_parent_order) do
+        expect(synced).to eq(Pathname.new(directory).ascend.map(&:to_s))
+        post_response(503, {})
+      end
+
+      expect { run }.to raise_error(store::Unverified, /HTTP 503/)
+    end
+
+    it 'does not POST if syncing an ancestor of the submission directory fails' do
+      root = File.realpath(@stop_state_directory)
+      directory = File.join(root, 'bitflyer-cli', 'stops')
+      directory_handle = instance_double(File)
+      allow(Bitflyer::Cli::StopSubmission).to receive(:state_directory).and_return(directory)
+      allow(File).to receive(:open).and_call_original
+      allow(File).to receive(:open).with(root, File::RDONLY).and_yield(directory_handle)
+      allow(directory_handle).to receive(:fsync).and_raise(Errno::EIO)
+
+      expect { run }.to raise_error(Errno::EIO)
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+
     it 'does not submit when an external stop closes the position during active-order lookup' do
       allow(private_client).to receive(:parent_orders).with(hash_including(parent_order_state: 'ACTIVE')) do
         stub_responses(private_client, positions: [])
@@ -161,6 +201,47 @@ describe StopByRangeCommand, :stop_state do
 
       expect { run }.to output(/Set stop order/).to_stdout
       expect(private_client).to have_received(:send_parent_order).twice
+    end
+
+    context 'when reconciling a stop against paginated history' do
+      def stub_canceled_history(full_pages)
+        allow(private_client).to receive(:parent_orders)
+          .with(hash_including(parent_order_state: 'CANCELED')) do |query|
+            last_id = (query[:before] || (full_pages * 100) + 1) - 1
+            last_id.downto([last_id - 99, 1].max).map { |id| { 'id' => id } }
+          end
+      end
+
+      before do
+        expect { run }.to output(/Set stop order/).to_stdout
+        allow(private_client).to receive(:parent_orders)
+          .with(hash_including(parent_order_state: 'COMPLETED')).and_return([response])
+      end
+
+      [7, 11].each do |full_pages|
+        it "retains the pending record when #{full_pages} full canceled pages consume the history budget" do
+          stub_canceled_history(full_pages)
+          record_path = Dir.glob(File.join(Bitflyer::Cli::StopSubmission.state_directory, '*.lock'))
+            .fetch(0).delete_suffix('.lock')
+          acceptance_id = response.fetch('parent_order_acceptance_id')
+
+          expect { run }.to raise_error(Thor::Error, /requires reconciliation after 10 history requests/) do |error|
+            expect(error.message).to include(record_path)
+          end
+          expect(File.read(record_path)).to eq(acceptance_id)
+          expect(private_client).to have_received(:parent_orders).exactly(12).times
+          expect(private_client).not_to have_received(:parent_orders).with(hash_including(parent_order_state: 'COMPLETED'))
+          expect(private_client).to have_received(:send_parent_order).once
+        end
+      end
+
+      it 'reconciles completion on the last allowed history request' do
+        stub_canceled_history(6)
+
+        expect { run }.to output(/Previous stop order.*COMPLETED.*Completed submission record/m).to_stdout
+        expect(private_client).to have_received(:parent_orders).exactly(12).times
+        expect(private_client).to have_received(:send_parent_order).once
+      end
     end
 
     it 'does not replace a completed stop across two runs with the same stale position' do

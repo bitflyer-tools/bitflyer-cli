@@ -2,9 +2,8 @@
 
 require 'digest'
 require 'json'
-require 'pathname'
-require 'tempfile'
 require 'thor'
+require 'bitflyer/cli/durable_file'
 require 'bitflyer/cli/submission_state_directory'
 
 module Bitflyer
@@ -43,14 +42,8 @@ module Bitflyer
       end
 
       def record(exposure, acceptance_id = nil)
-        directory = File.dirname(@path)
-        Tempfile.create('pending-', directory) do |file|
-          file.write(JSON.generate(credential: @credential, exposure: exposure.to_s('F'), acceptance_id: acceptance_id))
-          file.flush
-          file.fsync
-          File.rename(file.path, @path)
-          sync_directory_tree(directory)
-        end
+        value = JSON.generate(credential: @credential, exposure: exposure.to_s('F'), acceptance_id: acceptance_id)
+        DurableFile.replace(@path, value)
       end
 
       def clear
@@ -60,15 +53,6 @@ module Bitflyer
       def require_reconciliation(message)
         raise Thor::Error, "#{message}\nCheck the order and exposure in bitFlyer before retrying. " \
                            "If manual reconciliation is needed, see the counter_trade instructions. Record: #{@path}"
-      end
-
-      private
-
-      def sync_directory_tree(directory)
-        # An existing ancestor may have been created by an interrupted or concurrent run.
-        Pathname.new(File.realpath(directory)).ascend do |path|
-          File.open(path.to_s, File::RDONLY, &:fsync)
-        end
       end
     end
   end
