@@ -197,6 +197,47 @@ describe StopByRangeCommand, :stop_state do
       expect(private_client).to have_received(:send_parent_order).twice
     end
 
+    context 'when reconciling a stop against paginated history' do
+      def stub_canceled_history(full_pages)
+        allow(private_client).to receive(:parent_orders)
+          .with(hash_including(parent_order_state: 'CANCELED')) do |query|
+            last_id = (query[:before] || (full_pages * 100) + 1) - 1
+            last_id.downto([last_id - 99, 1].max).map { |id| { 'id' => id } }
+          end
+      end
+
+      before do
+        expect { run }.to output(/Set stop order/).to_stdout
+        allow(private_client).to receive(:parent_orders)
+          .with(hash_including(parent_order_state: 'COMPLETED')).and_return([response])
+      end
+
+      [7, 11].each do |full_pages|
+        it "retains the pending record when #{full_pages} full canceled pages consume the history budget" do
+          stub_canceled_history(full_pages)
+          record_path = Dir.glob(File.join(Bitflyer::Cli::StopSubmission.state_directory, '*.lock'))
+            .fetch(0).delete_suffix('.lock')
+          acceptance_id = response.fetch('parent_order_acceptance_id')
+
+          expect { run }.to raise_error(Thor::Error, /requires reconciliation after 10 history requests/) do |error|
+            expect(error.message).to include(record_path)
+          end
+          expect(File.read(record_path)).to eq(acceptance_id)
+          expect(private_client).to have_received(:parent_orders).exactly(12).times
+          expect(private_client).not_to have_received(:parent_orders).with(hash_including(parent_order_state: 'COMPLETED'))
+          expect(private_client).to have_received(:send_parent_order).once
+        end
+      end
+
+      it 'reconciles completion on the last allowed history request' do
+        stub_canceled_history(6)
+
+        expect { run }.to output(/Previous stop order.*COMPLETED.*Completed submission record/m).to_stdout
+        expect(private_client).to have_received(:parent_orders).exactly(12).times
+        expect(private_client).to have_received(:send_parent_order).once
+      end
+    end
+
     it 'does not replace a completed stop across two runs with the same stale position' do
       expect { run }.to output(/Set stop order/).to_stdout
       allow(private_client).to receive(:parent_orders)
