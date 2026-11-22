@@ -71,7 +71,29 @@ describe StopByRangeCommand, :stop_state do
     it 'sets a sell stop below the average price' do
       expect { run }.to output("Set stop order SELL / 995000.0 / 0.2\n").to_stdout
       expect(private_client).to have_received(:send_parent_order)
-        .with(stop_order(side: 'SELL', trigger_price: 995_000.0, size: 0.2))
+        .with(stop_order(side: 'SELL', trigger_price: 995_000.0, size: 0.2)).once
+    end
+
+    it 'does not submit when an external stop closes the position during active-order lookup' do
+      allow(private_client).to receive(:parent_orders).with(hash_including(parent_order_state: 'ACTIVE')) do
+        stub_responses(private_client, positions: [])
+        []
+      end
+
+      expect { run }.to output("You don't have any position now.\n").to_stdout
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+
+    it 'does not replace a canceled stop when the position changes during reconciliation' do
+      expect { run }.to output(/Set stop order/).to_stdout
+      reduced_positions = [position(side: 'BUY', price: 1_000_000, size: 0.1)]
+      allow(private_client).to receive(:parent_orders).with(hash_including(parent_order_state: 'CANCELED')) do
+        stub_responses(private_client, positions: reduced_positions)
+        [response]
+      end
+
+      expect { run }.to raise_error(StopByRangeCommand::LookupFailed, /Position changed/)
+      expect(private_client).to have_received(:send_parent_order).once
     end
 
     it 'aborts when the refreshed position requires a different stop' do

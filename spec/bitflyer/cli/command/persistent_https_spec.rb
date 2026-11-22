@@ -87,13 +87,14 @@ describe 'Persistent exchange HTTPS' do
         [1, 'GET', '/v1/me/getparentorder?parent_order_id=JCO-second']
       ]
     end
+    let(:submission_requests) { lookup_requests + [[1, 'GET', positions_path], [1, 'POST', stop_submission_path]] }
 
     it 'checks positions and multiple candidates and submits on one TLS connection' do
       start_stop_server
 
       expect { run_stop }.to output(/Set stop order/).to_stdout
 
-      expect_stop_requests(lookup_requests + [[1, 'POST', stop_submission_path]])
+      expect_stop_requests(submission_requests)
       expect_signed_requests
     end
 
@@ -118,7 +119,7 @@ describe 'Persistent exchange HTTPS' do
 
       expect { run_stop }.to raise_error(Bitflyer::Cli::StopSubmission::Unverified, /communication error/)
 
-      expect_stop_requests(lookup_requests + [[1, 'POST', stop_submission_path]])
+      expect_stop_requests(submission_requests)
     end
 
     def run_stop
@@ -134,7 +135,8 @@ describe 'Persistent exchange HTTPS' do
     end
 
     def start_stop_server(second_detail: stop_detail(990_000), submission: { parent_order_acceptance_id: 'accepted' })
-      responses = [position_rows, position_rows, parent_orders, stop_detail(980_000), second_detail, submission]
+      responses = [position_rows, position_rows, parent_orders, stop_detail(980_000), second_detail, position_rows,
+                   submission]
       start_server { |_path, number| [responses.fetch(number - 1, submission), false] }
     end
 
