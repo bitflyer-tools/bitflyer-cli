@@ -74,6 +74,35 @@ describe StopByRangeCommand, :stop_state do
         .with(stop_order(side: 'SELL', trigger_price: 995_000.0, size: 0.2)).once
     end
 
+    it 'bounds lock files when matching active stops cover more ranges than there are lock slots' do
+      submission = Bitflyer::Cli::StopSubmission
+      allow(private_client).to receive(:parent_orders)
+        .and_return([{ 'parent_order_type' => 'STOP', 'parent_order_id' => 'JCO-stop' }])
+
+      (1..(submission::LOCK_COUNT * 2)).each do |range|
+        order = stop_order(side: 'SELL', trigger_price: 1_000_000.0 - range, size: 0.2)
+        detail = order.transform_keys(&:to_s)
+        detail['parameters'] = order.fetch(:parameters).map { |parameter| parameter.transform_keys(&:to_s) }
+        allow(private_client).to receive(:parent_order).and_return(detail)
+        expect { run(range) }.to output(/Existing stop order.*JCO-stop/).to_stdout
+      end
+
+      entries = Dir.children(submission.state_directory)
+      expect(entries.size).to be_between(1, submission::LOCK_COUNT)
+      expect(entries).to all(end_with('.lock'))
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+
+    it 'uses the submission record written under the original stop key' do
+      directory = Bitflyer::Cli::StopSubmission.state_directory
+      key = Digest::SHA256.hexdigest(['key', 'FX_BTC_JPY', 'STOP', 'SELL', 995_000.0, 0.2].to_json)
+      FileUtils.mkdir_p(directory)
+      File.write(File.join(directory, key), response.values.first)
+
+      expect { run }.to output(/Previous stop order.*#{response.values.first}.*awaiting confirmation/).to_stdout
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+
     it 'does not submit when an external stop closes the position during active-order lookup' do
       allow(private_client).to receive(:parent_orders).with(hash_including(parent_order_state: 'ACTIVE')) do
         stub_responses(private_client, positions: [])
