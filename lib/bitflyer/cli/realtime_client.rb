@@ -43,6 +43,18 @@ module Bitflyer
           @monitor = super
         end
 
+        def send_ping
+          connection = @websocket_client
+          super
+        rescue IOError, SystemCallError, OpenSSL::SSL::SSLError => e
+          @lifecycle.synchronize do
+            next if @stopped || !@websocket_client.equal?(connection)
+
+            connection.close
+            handle_close(error: e)
+          end
+        end
+
         def connect
           endpoint = URI.parse("#{@host}/socket.io/?transport=websocket")
           @websocket_client = TLSConnection.new(endpoint)

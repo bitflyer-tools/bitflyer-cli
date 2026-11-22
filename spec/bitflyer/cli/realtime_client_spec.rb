@@ -88,6 +88,60 @@ describe Bitflyer::Cli::RealtimeClient do
     end
   end
 
+  [IOError, Errno::ECONNRESET].each do |error_class|
+    it "resumes the same summary session after a heartbeat write raises #{error_class}" do
+      ticks = Queue.new
+      steps = Queue.new
+      feed = nil
+      allow_any_instance_of(transport_class).to receive(:start_monitoring).and_call_original
+      allow_any_instance_of(transport_class).to receive(:sleep) do
+        ticks << Thread.current
+        steps.pop
+      end
+      allow(described_class).to receive(:new).and_wrap_original do |start|
+        feed = start.call
+      end
+      stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
+      command = SummaryCommand.new
+      monitor = replacement = nil
+
+      with_tls_server(connections: 2, keep_open_connections: 2) do |requests, ready|
+        allow(command).to receive(:render) do
+          transport = feed.websocket_client
+          connection = transport.websocket_client
+          expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
+          monitor = ticks.pop
+          ready << true
+          sleep 0.01 until command.send(:fresh_price) == 1_010_000.0
+
+          socket = connection.instance_variable_get(:@socket)
+          expect(socket).to receive(:write) do
+            expect(connection).to be_open
+            raise error_class
+          end
+          transport.last_ping_at = 0
+          steps << true
+          expect(ticks.pop).to equal(monitor)
+          expect(socket).to be_closed
+          expect(command.send(:fresh_price)).to be_nil
+
+          steps << true
+          expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
+          expect(ticks.pop).to equal(monitor)
+          replacement = transport.websocket_client
+          expect(replacement).not_to equal(connection)
+          ready << true
+          sleep 0.01 until command.send(:fresh_price) == 1_010_000.0
+          raise Interrupt
+        end
+
+        expect { Timeout.timeout(5) { command.run } }.to output("\e[?25l\e[?25h").to_stdout
+        expect(monitor).not_to be_alive
+        expect(replacement.instance_variable_get(:@reader)).not_to be_alive
+      end
+    end
+  end
+
   after { server.close }
 
   it 'times out a stalled TCP dial before starting TLS' do
