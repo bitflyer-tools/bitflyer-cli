@@ -101,7 +101,7 @@ class CounterTradeCommand
     status = response.status
     body = response.body
     id = body[ACCEPTANCE_ID] if body.is_a?(Hash)
-    return submission.record(exposure, id) if status.between?(200, 299) && acceptance_id?(id)
+    return submission.record(exposure, id) if Bitflyer::Cli::OrderRejected.accepted?(status, id, body)
 
     reject_order(submission, body) if id.nil? && definite_rejection?(status, body)
     submission.require_reconciliation("Could not verify counter trade acceptance (HTTP #{status}).")

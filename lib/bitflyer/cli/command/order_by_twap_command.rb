@@ -5,6 +5,7 @@ require 'net/http'
 require 'openssl'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/order_amount'
+require 'bitflyer/cli/order_rejected'
 require 'bitflyer/cli/persistent_http_client'
 
 class OrderByTWAPCommand
@@ -101,11 +102,12 @@ class OrderByTWAPCommand
     body = response.body
     return :unverified unless body.is_a?(Hash) && verifiable_status?(response.status)
 
-    if accepted_order?(response.status, body)
+    acceptance_id = body['child_order_acceptance_id']
+    if Bitflyer::Cli::OrderRejected.accepted?(response.status, acceptance_id, body)
       puts body
       return :accepted
     end
-    return :unverified unless body['child_order_acceptance_id'].nil? && exchange_rejection?(body)
+    return :unverified unless acceptance_id.nil? && Bitflyer::Cli::OrderRejected.negative_status?(body)
 
     puts "An error has occurred\n#{body}"
     :rejected
@@ -113,21 +115,5 @@ class OrderByTWAPCommand
 
   def verifiable_status?(status)
     status.between?(200, 299) || (status.between?(400, 499) && status != 408)
-  end
-
-  def accepted_order?(status, body)
-    acceptance_id = body['child_order_acceptance_id']
-    status.between?(200, 299) && acceptance_id.is_a?(String) && !acceptance_id.strip.empty? &&
-      !exchange_rejection?(body) && !error_message?(body)
-  end
-
-  def exchange_rejection?(body)
-    status = body['status']
-    status.is_a?(Numeric) && status.negative?
-  end
-
-  def error_message?(body)
-    message = body['error_message']
-    message.is_a?(String) && !message.strip.empty?
   end
 end
