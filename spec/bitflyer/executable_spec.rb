@@ -426,6 +426,18 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     end.to output("Cancellation request rejected (status -200).\n").to_stderr
   end
 
+  [{}, '-200', -200.5].each do |status|
+    it "reports a cancellation status of #{status.inspect} as unverified" do
+      stub_credentials
+      stub_cancellation_response('400', JSON.generate(status: status))
+
+      expect do
+        expect { run_cli('cancel_order', 'child', 'JOR-order') }
+          .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not verify cancellation acceptance from bitFlyer.\n").to_stderr
+    end
+  end
+
   it 'reports an empty HTTP 502 as unverified without printing acceptance' do
     stub_credentials
     stub_cancellation_response('502', '')

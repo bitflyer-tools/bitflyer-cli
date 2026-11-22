@@ -56,6 +56,7 @@ class CancelOrderCommand
     message = response['error_message'].to_s
     return "Cancellation request rejected. #{message}" unless message.empty?
 
-    "Cancellation request rejected (status #{response['status']})." if response['status'].to_i.negative?
+    status = response['status']
+    "Cancellation request rejected (status #{status})." if status.is_a?(Integer) && status.negative?
   end
 end
