@@ -30,6 +30,9 @@ class CounterTradeCommand
   def trade(submission, pending)
     position = pending ? reconcile_position(submission, pending) : fetch_position
     place_order(submission, position)
+  rescue Net::HTTPBadResponse => e
+    detail = e.api_error if e.is_a?(Bitflyer::Cli::PersistentHTTPClient::GetResponseError)
+    raise PositionLookupFailed, "Failed to look up positions: #{detail || e.message}"
   end
 
   def reconcile_position(submission, pending)

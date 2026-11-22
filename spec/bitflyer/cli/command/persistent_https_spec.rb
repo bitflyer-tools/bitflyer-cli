@@ -162,6 +162,25 @@ describe 'Persistent exchange HTTPS' do
       expect_counter_trade_requests([[1, 'GET', positions_path], [1, 'POST', order_path]])
     end
 
+    {
+      '401 Unauthorized' => 'Invalid API key',
+      '503 Service Unavailable' => 'Positions unavailable'
+    }.each do |status, message|
+      it "prints the position lookup error for HTTP #{status} and exits without trading" do
+        body = { 'status' => -200, 'error_message' => message }
+        start_server { [body, false, status] }
+        stub_const('ARGV', %w[counter_trade])
+
+        expect do
+          expect { load File.expand_path('../../../../exe/bitflyer', __dir__) }
+            .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Failed to look up positions: #{body.inspect}\n").to_stderr.and output('').to_stdout
+
+        expect_counter_trade_requests([[1, 'GET', positions_path]])
+        expect(submission.pending).to be_nil
+      end
+    end
+
     it 'looks up the previous fill and confirms the resulting exposure on one TLS connection' do
       start_reconciliation_server([])
 
