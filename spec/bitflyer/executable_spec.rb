@@ -629,6 +629,19 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
         expect { run_cli(*args) }.to output('').to_stderr.and output(/.+/).to_stdout
         expect(private_client).to have_received(order_method)
       end
+
+      unless args.first == 'counter_trade'
+        ['', " \t\n", "\u3000", 123, true, false, nil].each do |acceptance_id|
+          it "reports acceptance as unverified for ID #{acceptance_id.inspect} without retrying" do
+            stub_responses(private_client, order_method => { "#{order_type}_order_acceptance_id" => acceptance_id })
+
+            expect do
+              expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+            end.to output("Could not verify order acceptance.\n").to_stderr.and output('').to_stdout
+            expect(private_client).to have_received(order_method).once
+          end
+        end
+      end
     end
   end
 end
