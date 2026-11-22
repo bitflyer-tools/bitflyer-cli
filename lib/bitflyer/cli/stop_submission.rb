@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 require 'digest'
-require 'fileutils'
 require 'json'
 require 'tempfile'
 require 'bitflyer/cli/order_rejected'
+require 'bitflyer/cli/submission_state_directory'
 
 module Bitflyer
   module Cli
@@ -28,7 +28,7 @@ module Bitflyer
       end
 
       def synchronize
-        FileUtils.mkdir_p(File.dirname(@path), mode: 0o700)
+        SubmissionStateDirectory.prepare(File.dirname(@path))
         File.open("#{@path}.lock", File::RDWR | File::CREAT | File::NOFOLLOW, 0o600) do |lock|
           raise IOError, "Could not lock stop submission: #{@path}" unless lock.flock(File::LOCK_EX)
 
@@ -37,7 +37,7 @@ module Bitflyer
       end
 
       def pending
-        value = File.read(@path)
+        value = File.read(@path, mode: File::RDONLY | File::NOFOLLOW)
         value.strip.empty? ? UNVERIFIED : value
       rescue Errno::ENOENT
         nil
