@@ -2,18 +2,18 @@
 
 require 'thor'
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/parent_order_lookup'
 require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/stop_submission'
 
-class StopByRangeCommand # rubocop:disable Metrics/ClassLength
+class StopByRangeCommand
   include HasHTTPClient
 
   alias http_private_client persistent_http_client
 
-  class LookupFailed < StandardError; end
+  LookupFailed = Bitflyer::Cli::ParentOrderLookup::LookupFailed
 
   PRODUCT_CODE = 'FX_BTC_JPY'
-  PAGE_SIZE = 100
   TERMINAL_STATES = %w[CANCELED EXPIRED REJECTED COMPLETED].freeze
   ACCEPTANCE_ID = 'parent_order_acceptance_id'
 
@@ -106,35 +106,8 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
     raise Thor::Error, 'Stop trigger price must be positive and finite.'
   end
 
-  def find_parent_order(state, &match_order)
-    before = nil
-    loop do
-      orders = parent_orders(state, before)
-      match = orders.find(&match_order)
-      return match if match
-      return if orders.size < PAGE_SIZE
-
-      before = next_cursor(orders, before)
-    end
-  end
-
-  def next_cursor(orders, before)
-    ids = orders.map { |order| order['id'] }
-    if ids.all? { |id| id.is_a?(Integer) && id.positive? }
-      cursor = ids.min
-      return cursor if before.nil? || cursor < before
-    end
-
-    raise LookupFailed, 'Could not paginate active parent orders.'
-  end
-
-  def parent_orders(state, before)
-    orders = http_private_client.parent_orders(
-      product_code: PRODUCT_CODE, parent_order_state: state, count: PAGE_SIZE, before: before
-    )
-    return orders if orders.is_a?(Array)
-
-    raise LookupFailed, "Failed to look up #{state.downcase} parent orders: #{orders.inspect}"
+  def find_parent_order(state, &)
+    Bitflyer::Cli::ParentOrderLookup.new(http_private_client, PRODUCT_CODE).find(state, &)
   end
 
   def matching_stop?(order, stop)

@@ -95,6 +95,11 @@ shown by the CLI while no `stop_by_range` commands are running.
 
 ### Offset a position
 
+Before sending an offset, `counter_trade` checks active parent orders for the
+market. An active standalone stop on the offset side or an unverifiable lookup
+blocks the trade. The command prints the conflicting order ID when available so
+you can resolve the order before retrying.
+
 `bitflyer counter_trade` coordinates runs for each product on the same machine
 when they share an OS account and state directory. The command saves a record
 under `$XDG_STATE_HOME/bitflyer-cli/counter-trades` (default

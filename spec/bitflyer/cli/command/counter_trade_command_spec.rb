@@ -13,6 +13,10 @@ describe 'Loading the counter trade command on its own' do
         [{ 'side' => 'BUY', 'price' => 1_000_000, 'size' => 0.1 }]
       end
 
+      def client.parent_orders(**)
+        []
+      end
+
       def client.send_child_order(product_code:, child_order_type:, side:, size:)
         Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, { 'child_order_acceptance_id' => 'accepted' })
       end
@@ -44,7 +48,7 @@ describe CounterTradeCommand, :counter_trade_state do
   let(:accepted) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' } }
 
   before do
-    stub_responses(private_client, positions: positions, send_child_order: Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(http_status, accepted))
+    stub_responses(private_client, positions: positions, parent_orders: [], send_child_order: Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(http_status, accepted))
   end
 
   include_examples 'rejects malformed position snapshots', :send_child_order
@@ -123,6 +127,52 @@ describe CounterTradeCommand, :counter_trade_state do
     end
   end
 
+  context 'when checking for active protective stops' do
+    let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.2)] }
+    let(:stop) do
+      { 'id' => 1, 'parent_order_id' => 'JCO-stop', 'parent_order_type' => 'STOP', 'side' => 'SELL', 'size' => 0.2 }
+    end
+
+    it 'allows an offset when the active orders contain no protective stop for the position' do
+      stub_responses(private_client, parent_orders: [stop.merge('side' => 'BUY'), { 'parent_order_type' => 'IFDOCO' }])
+
+      expect { run_command }.to output("Clear position SELL / 0.2\n").to_stdout
+      expect(private_client).to have_received(:send_child_order).once
+    end
+
+    it 'blocks even a smaller protective stop on a later page' do
+      first_page = (2..101).map { |id| { 'id' => id, 'parent_order_type' => 'OCO' } }
+      query = { product_code: 'FX_BTC_JPY', parent_order_state: 'ACTIVE', count: 100 }
+      allow(private_client).to receive(:parent_orders).with(**query, before: nil).and_return(first_page)
+      allow(private_client).to receive(:parent_orders).with(**query, before: 2).and_return([stop.merge('size' => 0.01)])
+
+      expect { run_command }.to raise_error(Thor::Error, /Active protective stop.*JCO-stop/)
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+
+    it 'blocks when pagination cannot advance' do
+      page = (1..100).map { |id| { 'id' => id, 'parent_order_type' => 'OCO' } }
+      stub_responses(private_client, parent_orders: page)
+
+      expect { run_command }.to raise_error(Thor::Error, /Could not paginate/)
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+
+    it 'includes the parent ID when a stop has an invalid side' do
+      stub_responses(private_client, parent_orders: [stop.merge('side' => nil)])
+
+      expect { run_command }.to raise_error(Thor::Error, /Could not verify active parent order.*JCO-stop/)
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+
+    it 'blocks when the list request times out' do
+      allow(private_client).to receive(:parent_orders).and_raise(Net::ReadTimeout)
+
+      expect { run_command }.to raise_error(Thor::Error, /Could not verify active protective stops/)
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+  end
+
   context 'with a net short position' do
     let(:positions) do
       [position(side: 'SELL', price: '1e6', size: '0.6'), position(side: 'BUY', price: 1_100_000, size: 0.1)]
@@ -188,6 +238,10 @@ describe 'Concurrent counter trades' do
         return [] if ENV.fetch('PHASE') == 'visible'
 
         [{ 'side' => 'BUY', 'price' => 1_000_000, 'size' => 0.2 }]
+      end
+
+      def client.parent_orders(**)
+        []
       end
 
       def client.send_child_order(product_code:, child_order_type:, side:, size:)
