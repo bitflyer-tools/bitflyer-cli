@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/terminal_text'
 
 class ExecutionsCommand
   include HasHTTPClient
@@ -20,7 +21,7 @@ class ExecutionsCommand
     executions = fetch_executions(filters)
     return puts 'No executions found.' if executions.empty?
 
-    rows = executions.map { |execution| execution.values_at(*FIELDS).join(' | ') }
+    rows = executions.map { |execution| Bitflyer::Cli::TerminalText.escape(execution.values_at(*FIELDS).join(' | ')) }
     puts HEADER, rows
   end
 
@@ -32,9 +33,9 @@ class ExecutionsCommand
 
     message = response['error_message'].to_s if response.is_a?(Hash)
     detail = message.to_s.empty? ? 'Unexpected response from bitFlyer.' : message
-    raise LookupFailed, "Could not list executions. #{detail}"
+    raise LookupFailed, "Could not list executions. #{Bitflyer::Cli::TerminalText.escape(detail)}"
   rescue SocketError, SystemCallError, IOError, Timeout::Error, OpenSSL::SSL::SSLError, TypeError => e
-    raise LookupFailed, "Could not list executions. #{e.message}"
+    raise LookupFailed, "Could not list executions. #{Bitflyer::Cli::TerminalText.escape(e.message)}"
   end
 
   def complete_execution?(execution)

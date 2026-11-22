@@ -298,6 +298,17 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     end.to output("Could not list executions. Permission denied\n").to_stderr
   end
 
+  { 'open_orders' => [:child_orders, 'child orders'], 'executions' => [:executions, 'executions'] }.each do
+    |command, (lookup, label)|
+    it "escapes terminal controls in the #{command} diagnostic on stderr" do
+      stub_responses(private_client, lookup => { 'status' => -1, 'error_message' => "Denied\r\n\e[2J" })
+
+      expect do
+        expect { run_cli(command) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not list #{label}. Denied\\r\\n\\e[2J\n").to_stderr.and output('').to_stdout
+    end
+  end
+
   context 'when the executions page contains an incomplete fill' do
     let(:fill) do
       {
@@ -335,7 +346,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     end
 
     context 'when the HTTP 503 response has no body' do
-      let(:response) { instance_double(Net::HTTPServiceUnavailable, body: nil) }
+      let(:response) { instance_double(Net::HTTPServiceUnavailable, code: '503', body: nil) }
 
       it 'prints a lookup diagnostic without a table and exits with status 1' do
         expect do
@@ -345,7 +356,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     end
 
     context 'when the HTTP 200 response contains an empty array' do
-      let(:response) { instance_double(Net::HTTPOK, body: '[]') }
+      let(:response) { instance_double(Net::HTTPOK, code: '200', body: '[]') }
 
       it 'prints the empty result and completes successfully' do
         expect { run_cli('executions') }.to output("No executions found.\n").to_stdout.and output('').to_stderr
