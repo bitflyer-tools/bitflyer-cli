@@ -14,6 +14,7 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
 
   PRODUCT_CODE = 'FX_BTC_JPY'
   PAGE_SIZE = 100
+  HISTORY_REQUEST_LIMIT = 10
   TERMINAL_STATES = %w[CANCELED EXPIRED REJECTED COMPLETED].freeze
   ACCEPTANCE_ID = 'parent_order_acceptance_id'
 
@@ -64,7 +65,7 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
   end
 
   def pending_stop?(submission, pending, description)
-    id, state = submission.reconcile(pending) { terminal_state(pending) }
+    id, state = submission.reconcile(pending) { terminal_state(pending, submission.path) }
     return false if state && state != 'COMPLETED'
 
     if id == Bitflyer::Cli::StopSubmission::UNVERIFIED
@@ -76,9 +77,23 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
     true
   end
 
-  def terminal_state(pending)
+  def terminal_state(pending, record_path)
+    request_page = history_page_reader(pending, record_path)
     TERMINAL_STATES.find do |state|
-      find_parent_order(state) { |order| order[ACCEPTANCE_ID] == pending }
+      find_parent_order(state, request_page: request_page) { |order| order[ACCEPTANCE_ID] == pending }
+    end
+  end
+
+  def history_page_reader(pending, record_path)
+    remaining_requests = HISTORY_REQUEST_LIMIT
+    lambda do |state, before|
+      if remaining_requests.zero?
+        raise Thor::Error, "Stop order #{pending} still requires reconciliation after " \
+                           "#{HISTORY_REQUEST_LIMIT} history requests. Submission record: #{record_path}"
+      end
+
+      remaining_requests -= 1
+      parent_orders(state, before)
     end
   end
 
@@ -106,10 +121,10 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
     raise Thor::Error, 'Stop trigger price must be positive and finite.'
   end
 
-  def find_parent_order(state, &match_order)
+  def find_parent_order(state, request_page: method(:parent_orders), &match_order)
     before = nil
     loop do
-      orders = parent_orders(state, before)
+      orders = request_page.call(state, before)
       match = orders.find(&match_order)
       return match if match
       return if orders.size < PAGE_SIZE
@@ -139,11 +154,16 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
 
   def matching_stop?(order, stop)
     return false unless order['parent_order_type'] == 'STOP'
+    return false if opposite_side?(order['side'], stop.fetch(:side))
 
     detail = parent_order_detail(order.fetch('parent_order_id'))
     parameters = detail.fetch('parameters')
     detail['order_method'] == 'SIMPLE' && parameters.one? &&
       stop.all? { |key, value| parameters.first[key.to_s] == value }
+  end
+
+  def opposite_side?(side, expected_side)
+    %w[BUY SELL].include?(side) && side != expected_side
   end
 
   def parent_order_detail(order_id)

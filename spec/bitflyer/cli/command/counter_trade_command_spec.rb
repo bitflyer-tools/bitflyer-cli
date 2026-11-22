@@ -23,7 +23,6 @@ describe 'Loading the counter trade command on its own' do
 
       Bitflyer::Cli::PersistentHTTPClient.define_singleton_method(:new) { |*, **| client }
       command = CounterTradeCommand.new
-      command.define_singleton_method(:http_private_client) { client }
       command.run
 
       other_commands = $LOADED_FEATURES.grep(%r{/bitflyer/cli/command/(?!counter_trade_command\.rb\z)})
@@ -178,6 +177,23 @@ describe CounterTradeCommand, :counter_trade_state do
       expect { described_class.new.run }.to raise_error(Thor::Error, /original API key/)
       expect(private_client).to have_received(:send_child_order).once
     end
+
+    it 'keeps reconciling a completed offset after a failed position lookup' do
+      acceptance_id = accepted.fetch('child_order_acceptance_id')
+      completed = accepted.merge('child_order_state' => 'COMPLETED', 'executed_size' => 0.2)
+      allow(private_client).to receive(:child_order_by_acceptance_id)
+        .with(product_code: 'FX_BTC_JPY', child_order_acceptance_id: acceptance_id).and_return([completed])
+      allow(private_client).to receive(:positions)
+        .and_return(positions, { 'status' => -200, 'error_message' => 'Positions unavailable' }, [])
+
+      expect { described_class.new.run }.to output(/Clear position/).to_stdout
+      expect { described_class.new.run }
+        .to raise_error(Thor::Error, /Could not confirm exposure after the previous counter trade:.*Positions unavailable/)
+      expect { described_class.new.run }.to output("You don't have any position now.\n").to_stdout
+
+      expect(private_client).to have_received(:child_order_by_acceptance_id).twice
+      expect(private_client).to have_received(:send_child_order).once
+    end
   end
 
 end
@@ -217,7 +233,6 @@ describe 'Concurrent counter trades' do
 
       Bitflyer::Cli::PersistentHTTPClient.define_singleton_method(:new) { |*, **| client }
       command = CounterTradeCommand.new
-      command.define_singleton_method(:http_private_client) { client }
       if ENV.fetch('PHASE') == 'pending'
         lock = File.join(Bitflyer::Cli::CounterTradeSubmission.state_directory, 'FX_BTC_JPY.json.lock')
         File.open(lock, 'r+') do |file|

@@ -42,6 +42,8 @@ summary display and open orders.
 
 ## Usage
 
+See the [command reference](docs/reference.md) for options and environment variables.
+
 ```
 Commands:
   bitflyer cancel_all                                          # cancel all of orders
@@ -81,9 +83,10 @@ Runs on the same machine and OS account coordinate when they use the same API
 key and stop parameters. The CLI tracks accepted stops in a local submission
 record. It stores records under
 `$XDG_STATE_HOME/bitflyer-cli/stops` (default `~/.local/state/bitflyer-cli/stops`).
-If a connection error or HTTP 5xx response leaves acceptance unverified, the CLI
-exits with status 1 and prints the submission record's path. A retry also exits
-with status 1 while acceptance remains unverified and suppresses resubmission.
+If a connection error, HTTP 5xx response, or conflicting acceptance and error
+fields leave acceptance unverified, the CLI exits with status 1 and prints the
+submission record's path. While acceptance remains unverified, a retry exits
+with status 1 and suppresses resubmission.
 Check the order in bitFlyer before retrying. Once you confirm the outcome, remove
 the unverified record at the path shown by the CLI. The CLI uses up to 64
 persistent `slot-*.lock` files in this directory. Keep those files in place.
@@ -96,6 +99,11 @@ cannot trigger a duplicate order with the same parameters. If a new position
 needs a stop with those same parameters, verify the new position and the old
 stop's completion in bitFlyer, then remove the completed record at the path
 shown by the CLI while no `stop_by_range` commands are running.
+
+When reconciling a recorded acceptance ID, the CLI makes up to 10 requests
+across terminal parent-order states. If the limit prevents confirmation, the
+CLI exits with status 1, reports the record path, and keeps the record to
+prevent resubmission.
 
 ### Offset a position
 

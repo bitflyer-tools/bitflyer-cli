@@ -81,4 +81,12 @@ describe OrderByBestCommand do
       expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected, /Order rejected:.*-200/)
     end
   end
+
+  context 'when an acceptance ID accompanies a negative status' do
+    let(:response) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001', 'status' => -200 } }
+
+    it 'raises an unverified acceptance error' do
+      expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected::Unverified)
+    end
+  end
 end
