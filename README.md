@@ -57,6 +57,22 @@ Commands:
   bitflyer summary                                             # show current balance information
 ```
 
+### Preview an order plan
+
+```sh
+bitflyer ifdoco_by_range --amount=0.01 --type=buy --range=10000 --percentage=60 --dry-run
+bitflyer order_by_twap --amount=0.01 --type=buy --number-of-times=3 --interval=10 --dry-run
+```
+
+Both commands validate the inputs and print a local plan without trading
+credentials or order submission. IFDOCO reads the current public ticker and
+shows the reference price and all three legs, including the rounded exit prices.
+A later invocation fetches a fresh ticker and may calculate different prices.
+TWAP shows the side, size per slice, slice count, total BTC, interval, and planned
+time between the first and last slices. It runs without network access or waits.
+
+### Set a stop by range
+
 `stop_by_range` checks active parent orders before submitting. If it finds a
 standalone stop for the same market, side, trigger price, and size, it prints
 the existing stop and its parent order ID.
