@@ -662,6 +662,40 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
 
   {
     %w[counter_trade] => 'child',
+    %w[stop_by_range --range=5000] => 'parent'
+  }.each do |args, order_type|
+    context "when #{args.first} cannot verify acceptance" do
+      let(:private_client) { stub_persistent_client }
+      let(:order_method) { :"send_#{order_type}_order" }
+
+      before do
+        positions = [position(side: 'BUY', price: 1_000_000, size: 0.1)]
+        stub_responses(private_client, positions: positions, parent_orders: [])
+      end
+
+      {
+        'a negative status' => ['accepted', { 'status' => -200 }],
+        'an error message' => ['accepted', { 'error_message' => 'Insufficient margin' }],
+        'a NUL-only ID' => ["\0", {}]
+      }.each do |description, (acceptance_id, error_fields)|
+        it "keeps acceptance unverified when the response includes #{description}" do
+          body = error_fields.merge("#{order_type}_order_acceptance_id" => acceptance_id)
+          response = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, body)
+          stub_responses(private_client, order_method => response)
+
+          [/Could not verify .* acceptance \(HTTP 200\)/, /is unverified/].each do |diagnostic|
+            expect do
+              expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+            end.to output(diagnostic).to_stderr.and output('').to_stdout
+          end
+          expect(private_client).to have_received(order_method).once
+        end
+      end
+    end
+  end
+
+  {
+    %w[counter_trade] => 'child',
     %w[order_by_best --amount=0.01 --type=buy] => 'child',
     %w[ifdoco_by_range --amount=0.01 --type=buy --range=10000 --percentage=60] => 'parent'
   }.each do |args, order_type|
@@ -697,7 +731,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       end
 
       unless args.first == 'counter_trade'
-        ['', " \t\n", "\u3000", 123, true, false, nil].each do |acceptance_id|
+        ['', " \t\n", "\0", "\u3000", 123, true, false, nil].each do |acceptance_id|
           it "reports acceptance as unverified for ID #{acceptance_id.inspect} without retrying" do
             stub_responses(private_client, order_method => { "#{order_type}_order_acceptance_id" => acceptance_id })
 

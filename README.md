@@ -83,9 +83,10 @@ Runs on the same machine and OS account coordinate when they use the same API
 key and stop parameters. The CLI tracks accepted stops in a local submission
 record. It stores records under
 `$XDG_STATE_HOME/bitflyer-cli/stops` (default `~/.local/state/bitflyer-cli/stops`).
-If a connection error or HTTP 5xx response leaves acceptance unverified, the CLI
-exits with status 1 and prints the submission record's path. A retry also exits
-with status 1 while acceptance remains unverified and suppresses resubmission.
+If a connection error, HTTP 5xx response, or conflicting acceptance and error
+fields leave acceptance unverified, the CLI exits with status 1 and prints the
+submission record's path. While acceptance remains unverified, a retry exits
+with status 1 and suppresses resubmission.
 Check the order in bitFlyer before retrying. Once you confirm the outcome, remove
 the unverified record at the path shown by the CLI. Keep the `.lock` files in place.
 

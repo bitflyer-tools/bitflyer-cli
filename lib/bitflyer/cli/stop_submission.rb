@@ -86,8 +86,7 @@ module Bitflyer
           clear
           OrderRejected.check!(body, acceptance_key)
         end
-        return record(acceptance_id) if status.between?(200, 299) &&
-                                        acceptance_id.is_a?(String) && !acceptance_id.strip.empty?
+        return record(acceptance_id) if OrderRejected.accepted?(status, acceptance_id, body)
 
         raise_unverified("Could not verify stop order acceptance (HTTP #{status}).")
       end
