@@ -24,31 +24,43 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
     return unless stop
 
     submission = Bitflyer::Cli::StopSubmission.new(api_key, stop)
-    submission.synchronize { place_current_stop(options.range, stop, submission) }
+    submission.synchronize { place_stop(options.range, stop, submission) }
   ensure
     close_persistent_http_client
   end
 
   private
 
-  def place_current_stop(range, stop, submission)
+  def current_stop_matches?(range, stop)
     refreshed_stop = current_stop(range)
-    return unless refreshed_stop
+    return false unless refreshed_stop
     raise LookupFailed, 'Position changed before stop placement. Run the command again.' if refreshed_stop != stop
 
-    place_stop(refreshed_stop, submission)
+    true
   end
 
-  def place_stop(stop, submission)
+  def place_stop(range, stop, submission)
+    return unless current_stop_matches?(range, stop)
+
     pending = submission.pending
     description = stop.values_at(:side, :trigger_price, :size).join(' / ')
-    if (order = find_parent_order('ACTIVE') { |entry| matching_stop?(entry, stop) })
+    if (order = find_active_stop(stop, submission, pending))
       return puts "Existing stop order #{description} (#{order.fetch('parent_order_id')})"
     end
 
     return if pending && pending_stop?(submission, pending, description)
+    return unless current_stop_matches?(range, stop)
 
     submit_stop(stop, description, submission)
+  end
+
+  def find_active_stop(stop, submission, pending)
+    find_parent_order('ACTIVE') { |entry| matching_stop?(entry, stop) }
+  rescue Timeout::Error, SocketError, SystemCallError, IOError,
+         OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError => e
+    message = "Failed to look up active parent orders: #{e.message}."
+    submission.raise_unverified(message) if pending == Bitflyer::Cli::StopSubmission::UNVERIFIED
+    raise LookupFailed, message
   end
 
   def pending_stop?(submission, pending, description)

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/terminal_text'
 
 class OpenOrdersCommand
   include HasHTTPClient
@@ -25,7 +26,7 @@ class OpenOrdersCommand
 
     message = orders['error_message'].to_s if orders.is_a?(Hash)
     detail = message.to_s.empty? ? 'Unexpected response from bitFlyer.' : message
-    raise LookupFailed, "Could not list #{type} orders. #{detail}"
+    raise LookupFailed, "Could not list #{type} orders. #{Bitflyer::Cli::TerminalText.escape(detail)}"
   end
 
   def valid_order?(order, id_key)
@@ -36,11 +37,13 @@ class OpenOrdersCommand
   end
 
   def child_row(order)
-    order.values_at('child_order_id', 'child_order_type', 'side', 'price', 'outstanding_size').join(' | ')
+    fields = order.values_at('child_order_id', 'child_order_type', 'side', 'price', 'outstanding_size')
+    Bitflyer::Cli::TerminalText.escape(fields.join(' | '))
   end
 
   def parent_row(order)
-    order.values_at('parent_order_id', 'parent_order_type', 'parent_order_date').join(' | ')
+    fields = order.values_at('parent_order_id', 'parent_order_type', 'parent_order_date')
+    Bitflyer::Cli::TerminalText.escape(fields.join(' | '))
   end
 
   def print_orders(title, header, rows)

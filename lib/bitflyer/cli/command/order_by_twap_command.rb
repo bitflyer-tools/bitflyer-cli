@@ -7,6 +7,7 @@ require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/order_amount'
 require 'bitflyer/cli/order_rejected'
 require 'bitflyer/cli/persistent_http_client'
+require 'bitflyer/cli/twap_preview'
 
 class OrderByTWAPCommand
   include HasHTTPClient
@@ -15,13 +16,14 @@ class OrderByTWAPCommand
 
   def run(options)
     amount = OrderAmount.validate!(options.amount)
-    validate_interval!(options.interval)
+    interval = options.interval
+    validate_interval!(interval)
 
     number = whole_order_count(options.number_of_times)
     side = normalize_side(options.type)
-    counts = submit_slices(side, amount, number, options.interval)
-    puts "TWAP exchange acceptance (slices): #{counts.map { |status, count| "#{count} #{status}" }.join(', ')}."
-    counts
+    return Bitflyer::Cli::TWAPPreview.print(side, amount, number, interval) if options[:dry_run]
+
+    submit_slices(side, amount, number, interval)
   ensure
     close_persistent_http_client
   end
@@ -43,11 +45,13 @@ class OrderByTWAPCommand
       counts[:unattempted] -= 1
       break if result == :unverified
     end
+    puts "TWAP exchange acceptance (slices): #{counts.map { |status, count| "#{count} #{status}" }.join(', ')}."
     counts
   end
 
   def validate_interval!(interval)
-    raise Thor::MalformattedArgumentError, '--interval must be finite and >= 0' unless interval.finite? && interval >= 0
+    # Keep waits representable with signed 32-bit seconds.
+    raise Thor::MalformattedArgumentError, '--interval must be 0..2147483647' unless interval.between?(0, (2**31) - 1)
   end
 
   def submit_on_schedule(number, interval)
@@ -61,11 +65,9 @@ class OrderByTWAPCommand
 
   def whole_order_count(number)
     count = number.to_i
-    unless number == count && count.positive?
-      raise Thor::MalformattedArgumentError, '--number-of-times must be a positive whole number'
-    end
+    return count if number == count && count.positive?
 
-    count
+    raise Thor::MalformattedArgumentError, '--number-of-times must be a positive whole number'
   end
 
   def monotonic_time

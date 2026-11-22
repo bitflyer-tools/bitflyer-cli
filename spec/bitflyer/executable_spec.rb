@@ -298,6 +298,17 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     end.to output("Could not list executions. Permission denied\n").to_stderr
   end
 
+  { 'open_orders' => [:child_orders, 'child orders'], 'executions' => [:executions, 'executions'] }.each do
+    |command, (lookup, label)|
+    it "escapes terminal controls in the #{command} diagnostic on stderr" do
+      stub_responses(private_client, lookup => { 'status' => -1, 'error_message' => "Denied\r\n\e[2J" })
+
+      expect do
+        expect { run_cli(command) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not list #{label}. Denied\\r\\n\\e[2J\n").to_stderr.and output('').to_stdout
+    end
+  end
+
   context 'when the executions page contains an incomplete fill' do
     let(:fill) do
       {
@@ -335,7 +346,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     end
 
     context 'when the HTTP 503 response has no body' do
-      let(:response) { instance_double(Net::HTTPServiceUnavailable, body: nil) }
+      let(:response) { instance_double(Net::HTTPServiceUnavailable, code: '503', body: nil) }
 
       it 'prints a lookup diagnostic without a table and exits with status 1' do
         expect do
@@ -345,7 +356,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     end
 
     context 'when the HTTP 200 response contains an empty array' do
-      let(:response) { instance_double(Net::HTTPOK, body: '[]') }
+      let(:response) { instance_double(Net::HTTPOK, code: '200', body: '[]') }
 
       it 'prints the empty result and completes successfully' do
         expect { run_cli('executions') }.to output("No executions found.\n").to_stdout.and output('').to_stderr
@@ -424,6 +435,18 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       expect { run_cli('cancel_order', 'child', 'JOR-order') }
         .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("Cancellation request rejected (status -200).\n").to_stderr
+  end
+
+  [{}, '-200', -200.5].each do |status|
+    it "reports a cancellation status of #{status.inspect} as unverified" do
+      stub_credentials
+      stub_cancellation_response('400', JSON.generate(status: status))
+
+      expect do
+        expect { run_cli('cancel_order', 'child', 'JOR-order') }
+          .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not verify cancellation acceptance from bitFlyer.\n").to_stderr
+    end
   end
 
   it 'reports an empty HTTP 502 as unverified without printing acceptance' do
@@ -574,6 +597,24 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       end
     end
 
+    it 'reports the pending record on a retry when the active order lookup returns a bodyless 503' do
+      stop = { product_code: 'FX_BTC_JPY', condition_type: 'STOP', side: 'SELL', trigger_price: 995_000.0, size: 0.1 }
+      submission = Bitflyer::Cli::StopSubmission.new('key', stop)
+      File.write(submission.path, 'unverified')
+      unavailable = instance_double(Net::HTTPServiceUnavailable, code: '503', body: nil)
+      allow(transport).to receive(:request).with(an_object_having_attributes(path: %r{\A/v1/me/getparentorders\?}))
+                                           .and_return(unavailable)
+      diagnostic = "Failed to look up active parent orders: Empty HTTP response body (status 503).\n" \
+                   "Check the order in bitFlyer before retrying. Once you confirm the outcome, " \
+                   "remove the unverified submission record at:\n#{submission.path}\n"
+
+      expect do
+        expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(diagnostic).to_stderr.and output('').to_stdout
+      expect(File.read(submission.path)).to eq('unverified')
+      expect(transport).not_to have_received(:request).with(instance_of(Net::HTTP::Post))
+    end
+
     def record_path
       %r{#{Regexp.escape(@stop_state_directory)}/[0-9a-f]{64}}
     end
@@ -647,6 +688,19 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
 
         expect { run_cli(*args) }.to output('').to_stderr.and output(/.+/).to_stdout
         expect(private_client).to have_received(order_method)
+      end
+
+      unless args.first == 'counter_trade'
+        ['', " \t\n", "\u3000", 123, true, false, nil].each do |acceptance_id|
+          it "reports acceptance as unverified for ID #{acceptance_id.inspect} without retrying" do
+            stub_responses(private_client, order_method => { "#{order_type}_order_acceptance_id" => acceptance_id })
+
+            expect do
+              expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+            end.to output("Could not verify order acceptance.\n").to_stderr.and output('').to_stdout
+            expect(private_client).to have_received(order_method).once
+          end
+        end
       end
     end
   end
