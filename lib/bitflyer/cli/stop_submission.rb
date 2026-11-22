@@ -3,7 +3,7 @@
 require 'digest'
 require 'fileutils'
 require 'json'
-require 'tempfile'
+require 'bitflyer/cli/durable_file'
 require 'bitflyer/cli/order_rejected'
 
 module Bitflyer
@@ -75,12 +75,7 @@ module Bitflyer
       end
 
       def record(value)
-        Tempfile.create('pending-', File.dirname(@path)) do |file|
-          file.write(value)
-          file.flush
-          file.fsync
-          File.rename(file.path, @path)
-        end
+        DurableFile.replace(@path, value)
       end
 
       def record_response(response, acceptance_key)
