@@ -166,7 +166,11 @@ describe Bitflyer::Cli::Runner do
     expect(client).not_to have_received(:send_child_order)
   end
 
-  { 'negative' => '-1', 'overflowing' => "#{'9' * 310}.0" }.each do |description, interval|
+  {
+    'negative' => '-1',
+    'overflowing' => "#{'9' * 310}.0",
+    'finite but outside the supported range' => (10**100).to_s
+  }.each do |description, interval|
     it "rejects the #{description} TWAP interval before sending any orders" do
       client = stub_persistent_client
       acceptance = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, 'child_order_acceptance_id' => 'JRF20180101-000000-000001')
@@ -176,7 +180,7 @@ describe Bitflyer::Cli::Runner do
         expect do
           start('order_by_twap', '-a', '0.01', '-t', 'buy', '-n', '2', "--interval=#{interval}")
         end.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-      end.to output(/^--interval must be finite and >= 0$/).to_stderr
+      end.to output(/^--interval must be 0\.\.2147483647$/).to_stderr
       expect(client).not_to have_received(:send_child_order)
     end
   end
