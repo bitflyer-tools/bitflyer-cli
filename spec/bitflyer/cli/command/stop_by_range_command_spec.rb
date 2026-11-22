@@ -231,6 +231,32 @@ describe StopByRangeCommand, :stop_state do
         stub_responses(private_client, parent_order: { 'order_method' => method, 'parameters' => parameters })
       end
 
+      it 'fetches only the matching stop detail after 20 opposite-side stops' do
+        opposite_stops = (2..21).map do |id|
+          parent.merge('id' => id, 'parent_order_id' => "JCO-buy-#{id}", 'side' => 'BUY')
+        end
+        stub_responses(private_client, parent_orders: opposite_stops + [parent.merge('side' => 'SELL')])
+        stub_parent_detail(parameters: [parameters.merge('side' => 'BUY')])
+        allow(private_client).to receive(:parent_order).with(parent_order_id: 'JCO-stop')
+          .and_return('order_method' => 'SIMPLE', 'parameters' => [parameters])
+
+        expect { run }.to output(/Existing stop order.*JCO-stop/).to_stdout
+        expect(private_client).to have_received(:parent_order).once
+        expect(private_client).to have_received(:parent_order).with(parent_order_id: 'JCO-stop')
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
+      [{}, { 'side' => 'UNKNOWN' }].each do |metadata|
+        it "verifies stop details when the list side is #{metadata.fetch('side', 'missing')}" do
+          stub_responses(private_client, parent_orders: [parent.merge(metadata)])
+          stub_parent_detail
+
+          expect { run }.to output(/Existing stop order.*JCO-stop/).to_stdout
+          expect(private_client).to have_received(:parent_order).with(parent_order_id: 'JCO-stop').once
+          expect(private_client).not_to have_received(:send_parent_order)
+        end
+      end
+
       it 'submits once and reports the existing stop on the next invocation' do
         expect { run }.to output(/Set stop order/).to_stdout
         stub_responses(private_client, parent_orders: [parent.merge(response)])
