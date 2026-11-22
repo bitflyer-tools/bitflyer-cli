@@ -23,7 +23,6 @@ describe 'Loading the counter trade command on its own' do
 
       Bitflyer::Cli::PersistentHTTPClient.define_singleton_method(:new) { |*, **| client }
       command = CounterTradeCommand.new
-      command.define_singleton_method(:http_private_client) { client }
       command.run
 
       other_commands = $LOADED_FEATURES.grep(%r{/bitflyer/cli/command/(?!counter_trade_command\.rb\z)})
@@ -217,7 +216,6 @@ describe 'Concurrent counter trades' do
 
       Bitflyer::Cli::PersistentHTTPClient.define_singleton_method(:new) { |*, **| client }
       command = CounterTradeCommand.new
-      command.define_singleton_method(:http_private_client) { client }
       if ENV.fetch('PHASE') == 'pending'
         lock = File.join(Bitflyer::Cli::CounterTradeSubmission.state_directory, 'FX_BTC_JPY.json.lock')
         File.open(lock, 'r+') do |file|

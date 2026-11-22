@@ -8,6 +8,8 @@ require 'bitflyer/cli/persistent_http_client'
 class CounterTradeCommand
   include HasHTTPClient
 
+  alias http_private_client persistent_http_client
+
   PRODUCT_CODE = 'FX_BTC_JPY'
   ACCEPTANCE_ID = 'child_order_acceptance_id'
   COMMUNICATION_ERRORS = [
