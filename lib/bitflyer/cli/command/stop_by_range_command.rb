@@ -24,22 +24,24 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
     return unless stop
 
     submission = Bitflyer::Cli::StopSubmission.new(api_key, stop)
-    submission.synchronize { place_current_stop(options.range, stop, submission) }
+    submission.synchronize { place_stop(options.range, stop, submission) }
   ensure
     close_persistent_http_client
   end
 
   private
 
-  def place_current_stop(range, stop, submission)
+  def current_stop_matches?(range, stop)
     refreshed_stop = current_stop(range)
-    return unless refreshed_stop
+    return false unless refreshed_stop
     raise LookupFailed, 'Position changed before stop placement. Run the command again.' if refreshed_stop != stop
 
-    place_stop(refreshed_stop, submission)
+    true
   end
 
-  def place_stop(stop, submission)
+  def place_stop(range, stop, submission)
+    return unless current_stop_matches?(range, stop)
+
     pending = submission.pending
     description = stop.values_at(:side, :trigger_price, :size).join(' / ')
     if (order = find_active_stop(stop, submission, pending))
@@ -47,6 +49,7 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
     end
 
     return if pending && pending_stop?(submission, pending, description)
+    return unless current_stop_matches?(range, stop)
 
     submit_stop(stop, description, submission)
   end
