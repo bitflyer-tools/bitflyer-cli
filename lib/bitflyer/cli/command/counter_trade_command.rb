@@ -45,7 +45,9 @@ class CounterTradeCommand
 
   def expected_exposure(submission, pending)
     id = pending['acceptance_id']
-    submission.require_reconciliation('Previous counter trade acceptance is unverified.') unless acceptance_id?(id)
+    unless Bitflyer::Cli::OrderRejected.acceptance_id?(id)
+      submission.require_reconciliation('Previous counter trade acceptance is unverified.')
+    end
 
     before = BigDecimal(pending['exposure'].to_s, exception: false)
     executed = terminal_fill(id)
@@ -110,10 +112,6 @@ class CounterTradeCommand
   def reject_order(submission, body)
     submission.clear
     Bitflyer::Cli::OrderRejected.check!(body, ACCEPTANCE_ID)
-  end
-
-  def acceptance_id?(id)
-    id.is_a?(String) && !id.strip.empty?
   end
 
   def send_market_order(client, submission, side, size)
