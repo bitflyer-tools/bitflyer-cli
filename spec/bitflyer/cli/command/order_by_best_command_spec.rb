@@ -2,12 +2,13 @@ require 'spec_helper'
 
 describe OrderByBestCommand do
   let!(:public_client) { stub_public_client }
-  let!(:private_client) { stub_private_client }
+  let!(:private_client) { stub_persistent_client }
   let(:response) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' } }
 
   before do
     stub_responses(public_client, ticker: { 'best_bid' => 1_000_000, 'best_ask' => 1_000_100 })
-    stub_responses(private_client, send_child_order: response)
+    submission = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, response)
+    stub_responses(private_client, send_child_order: submission)
   end
 
   def run(type, amount: 0.01)
@@ -87,6 +88,14 @@ describe OrderByBestCommand do
 
     it 'raises an unverified acceptance error' do
       expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected::Unverified)
+    end
+  end
+
+  context 'when the acceptance ID is a non-breaking space' do
+    let(:response) { { 'child_order_acceptance_id' => "\u00A0" } }
+
+    it 'reports unverified acceptance' do
+      expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected::Unverified, /verify order acceptance/)
     end
   end
 end

@@ -10,6 +10,15 @@ bitflyer-cli is a command-line tool for the BTC-CFD/JPY market on
 [bitFlyer Crypto CFD](https://lightning.bitflyer.com/docs?lang=en#api-documentation).
 This market uses `FX_BTC_JPY` as its API product code.
 
+## Features
+
+- Monitor the live execution price, net position, and estimated account balance.
+- Review active orders and recent fills, and request order cancellations.
+- Place limit orders at the best price on the order book, schedule TWAP slices,
+  and submit range-based stop and IFDOCO orders.
+- Preview TWAP and IFDOCO orders before submitting them.
+- Offset net exposure with a market order.
+
 ## Installation
 
 Requires Ruby 3.3 or later.
@@ -112,6 +121,11 @@ its path. Confirm the fill and the updated position in bitFlyer before retrying.
 
 ### Offset a position
 
+Before sending an offset, `counter_trade` checks active parent orders for the
+market. An active standalone stop on the offset side or an unverifiable lookup
+blocks the trade. The command prints the conflicting order ID when available so
+you can resolve the order before retrying.
+
 `bitflyer counter_trade` coordinates runs for each product on the same machine
 when they share an OS account and state directory. The command saves a record
 under `$XDG_STATE_HOME/bitflyer-cli/counter-trades` (default
@@ -145,7 +159,7 @@ bitflyer cancel_order parent JCO20150925-055555-022222 --confirm-parent
 Canceling a parent strategy also cancels its associated orders. The required
 `--confirm-parent` flag works in scripts without an interactive prompt.
 The CLI reports when bitFlyer accepts or rejects the request. Network errors
-and HTTP 5xx responses leave acceptance unverified. Rejected and unverified
+and HTTP 408 or 5xx responses leave acceptance unverified. Rejected and unverified
 requests exit unsuccessfully. Run `bitflyer open_orders` again to check the
 order's status.
 
@@ -184,6 +198,9 @@ The command rejects invalid intervals before sending any slices.
 unverified, and unattempted. If a transport error, gateway error, or malformed
 response leaves a slice's acceptance unverified, the command stops the schedule
 without retrying that slice and exits with status 1.
+Ctrl+C also stops the schedule and reports the partial totals before exiting
+unsuccessfully. A slice interrupted during submission is unverified. A slice
+still waiting to be submitted is unattempted.
 
 ## Contributing
 
