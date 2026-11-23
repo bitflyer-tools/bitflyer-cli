@@ -53,6 +53,12 @@ describe StopByRangeCommand, :stop_state do
   context 'with a long position' do
     let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.2)] }
 
+    include_examples 'rejects unsafe submission state', Bitflyer::Cli::StopSubmission, :send_parent_order do
+      def run_submission_command
+        run
+      end
+    end
+
     [0, -5000].each do |range|
       it "rejects a range of #{range} without sending an order" do
         expect { run(range) }.to raise_error(ArgumentError, 'Range must be positive')

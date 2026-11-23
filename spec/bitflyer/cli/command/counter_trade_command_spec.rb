@@ -35,7 +35,7 @@ describe 'Loading the counter trade command on its own' do
 
     lib = File.expand_path('../../../../lib', __dir__)
     stdout, stderr, status = Dir.mktmpdir do |directory|
-      env = { 'XDG_STATE_HOME' => directory, 'BITFLYER_API_KEY' => 'key', 'BITFLYER_API_SECRET' => 'secret' }
+      env = { 'XDG_STATE_HOME' => File.realpath(directory), 'BITFLYER_API_KEY' => 'key', 'BITFLYER_API_SECRET' => 'secret' }
       Open3.capture3(env, RbConfig.ruby, '-I', lib, '-e', script)
     end
 
@@ -92,6 +92,12 @@ describe CounterTradeCommand, :counter_trade_state do
   context 'with a long position' do
     let(:positions) do
       [position(side: 'BUY', price: 1_000_000, size: 0.1), position(side: 'BUY', price: 1_000_000, size: 0.2)]
+    end
+
+    include_examples 'rejects unsafe submission state', Bitflyer::Cli::CounterTradeSubmission, :send_child_order do
+      def run_submission_command
+        described_class.new.run
+      end
     end
 
     it 'sells the whole position at market' do
@@ -340,7 +346,7 @@ describe 'Concurrent counter trades' do
     lib = File.expand_path('../../../../lib', __dir__)
     Dir.mktmpdir do |directory|
       log = File.join(directory, 'orders')
-      env = { 'XDG_STATE_HOME' => directory, 'ORDER_LOG' => log,
+      env = { 'XDG_STATE_HOME' => File.realpath(directory), 'ORDER_LOG' => log,
               'BITFLYER_API_KEY' => 'key', 'BITFLYER_API_SECRET' => 'secret' }
       command = [RbConfig.ruby, '-I', lib, '-e', script]
 

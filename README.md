@@ -181,6 +181,11 @@ to stderr and exits unsuccessfully.
 
 ## Troubleshooting
 
+Both `stop_by_range` and `counter_trade` require an account-owned submission
+directory with group and other write permissions disabled. Use a state path
+without symbolic links or `..` components and with ancestors protected from
+modification by other OS users.
+
 For help with credentials, missing prices, and order status, see
 [Troubleshooting](docs/troubleshooting.md).
 
