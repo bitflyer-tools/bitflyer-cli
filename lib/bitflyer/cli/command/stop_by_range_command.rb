@@ -17,6 +17,10 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
   HISTORY_REQUEST_LIMIT = 10
   TERMINAL_STATES = %w[CANCELED EXPIRED REJECTED COMPLETED].freeze
   ACCEPTANCE_ID = 'parent_order_acceptance_id'
+  COMMUNICATION_ERRORS = [
+    Timeout::Error, SocketError, SystemCallError, IOError,
+    OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError
+  ].freeze
 
   def run(options)
     raise ArgumentError, 'Range must be positive' unless options.range.positive?
@@ -57,8 +61,7 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
 
   def find_active_stop(stop, submission, pending)
     find_parent_order('ACTIVE') { |entry| matching_stop?(entry, stop) }
-  rescue Timeout::Error, SocketError, SystemCallError, IOError,
-         OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError => e
+  rescue *COMMUNICATION_ERRORS => e
     message = "Failed to look up active parent orders: #{e.message}."
     submission.raise_unverified(message) if pending == Bitflyer::Cli::StopSubmission::UNVERIFIED
     raise LookupFailed, message
@@ -82,6 +85,8 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
     TERMINAL_STATES.find do |state|
       find_parent_order(state, request_page: request_page) { |order| order[ACCEPTANCE_ID] == pending }
     end
+  rescue *COMMUNICATION_ERRORS => e
+    raise LookupFailed, "Failed to look up terminal parent orders: #{e.message}. Submission record: #{record_path}"
   end
 
   def history_page_reader(pending, record_path)
