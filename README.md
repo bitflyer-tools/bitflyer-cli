@@ -110,9 +110,9 @@ stop's completion in bitFlyer, then remove the completed record at the path
 shown by the CLI while no `stop_by_range` commands are running.
 
 When reconciling a recorded acceptance ID, the CLI makes up to 10 requests
-across terminal parent-order states. If the limit prevents confirmation, the
-CLI exits with status 1, reports the record path, and keeps the record to
-prevent resubmission.
+across terminal parent-order states. If a communication error interrupts the
+lookup or the limit prevents confirmation, the CLI exits with status 1,
+reports the record path, and keeps the record to prevent resubmission.
 
 ### Offset a position
 
