@@ -80,6 +80,44 @@ describe StopByRangeCommand, :stop_state do
         .with(stop_order(side: 'SELL', trigger_price: 995_000.0, size: 0.2)).once
     end
 
+    it 'bounds lock files when matching active stops cover more ranges than there are lock slots' do
+      submission = Bitflyer::Cli::StopSubmission
+      allow(private_client).to receive(:parent_orders)
+        .and_return([{ 'parent_order_type' => 'STOP', 'parent_order_id' => 'JCO-stop' }])
+
+      (1..(submission::LOCK_COUNT * 2)).each do |range|
+        order = stop_order(side: 'SELL', trigger_price: 1_000_000.0 - range, size: 0.2)
+        detail = order.transform_keys(&:to_s)
+        detail['parameters'] = order.fetch(:parameters).map { |parameter| parameter.transform_keys(&:to_s) }
+        allow(private_client).to receive(:parent_order).and_return(detail)
+        expect { run(range) }.to output(/Existing stop order.*JCO-stop/).to_stdout
+      end
+
+      entries = Dir.children(submission.state_directory)
+      expect(entries.size).to be_between(1, submission::LOCK_COUNT)
+      expect(entries).to all(end_with('.lock'))
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+
+    it 'uses the original record and lock slot to block resubmission after reordering stop fields' do
+      directory = Bitflyer::Cli::StopSubmission.state_directory
+      key = Digest::SHA256.hexdigest(['key', 'FX_BTC_JPY', 'STOP', 'SELL', 995_000.0, 0.2].to_json)
+      record_path = File.join(directory, key)
+      acceptance_id = response.fetch('parent_order_acceptance_id')
+      FileUtils.mkdir_p(directory)
+      File.write(record_path, "completed:#{acceptance_id}")
+
+      command = described_class.new
+      allow(command).to receive(:current_stop).and_wrap_original do |original, range|
+        original.call(range).to_a.reverse.to_h
+      end
+
+      expect { command.run(thor_options(range: 5000)) }
+        .to output(/Previous stop order.*#{acceptance_id}.*COMPLETED/).to_stdout
+      expect(Dir.children(directory)).to contain_exactly(key, "slot-#{key.to_i(16) % 64}.lock")
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+
     it 'renames the unverified record and syncs the directory tree before the first POST' do
       root = File.realpath(@stop_state_directory)
       directory = File.join(root, 'bitflyer-cli', 'stops')
@@ -221,8 +259,10 @@ describe StopByRangeCommand, :stop_state do
       [7, 11].each do |full_pages|
         it "retains the pending record when #{full_pages} full canceled pages consume the history budget" do
           stub_canceled_history(full_pages)
-          record_path = Dir.glob(File.join(Bitflyer::Cli::StopSubmission.state_directory, '*.lock'))
-            .fetch(0).delete_suffix('.lock')
+          directory = Bitflyer::Cli::StopSubmission.state_directory
+          records = Dir.children(directory).reject { |name| name.end_with?('.lock') }
+          expect(records.size).to eq(1)
+          record_path = File.join(directory, records.first)
           acceptance_id = response.fetch('parent_order_acceptance_id')
 
           expect { run }.to raise_error(Thor::Error, /requires reconciliation after 10 history requests/) do |error|
@@ -297,6 +337,16 @@ describe StopByRangeCommand, :stop_state do
       expect(private_client).to have_received(:send_parent_order).twice
     end
 
+    it 'keeps an unverified stop record when the acceptance ID is a non-breaking space' do
+      stub_responses(private_client, send_parent_order: post_response(200, { 'parent_order_acceptance_id' => "\u00A0" }))
+
+      expect { run }.to raise_error(Bitflyer::Cli::StopSubmission::Unverified, /verify stop order acceptance/) do |error|
+        expect(File.read(error.message.split.last)).to eq('unverified')
+      end
+      expect { run }.to raise_error(Bitflyer::Cli::StopSubmission::Unverified, /unverified.*awaiting confirmation/)
+      expect(private_client).to have_received(:send_parent_order).once
+    end
+
     it 'keeps the stop pending after a transport failure' do
       allow(private_client).to receive(:send_parent_order).and_raise(Timeout::Error)
       expect { run }.to raise_error(Bitflyer::Cli::StopSubmission::Unverified, /communication error/)
@@ -316,6 +366,32 @@ describe StopByRangeCommand, :stop_state do
 
       def stub_parent_detail(method: 'SIMPLE', parameters: [self.parameters])
         stub_responses(private_client, parent_order: { 'order_method' => method, 'parameters' => parameters })
+      end
+
+      it 'fetches only the matching stop detail after 20 opposite-side stops' do
+        opposite_stops = (2..21).map do |id|
+          parent.merge('id' => id, 'parent_order_id' => "JCO-buy-#{id}", 'side' => 'BUY')
+        end
+        stub_responses(private_client, parent_orders: opposite_stops + [parent.merge('side' => 'SELL')])
+        stub_parent_detail(parameters: [parameters.merge('side' => 'BUY')])
+        allow(private_client).to receive(:parent_order).with(parent_order_id: 'JCO-stop')
+          .and_return('order_method' => 'SIMPLE', 'parameters' => [parameters])
+
+        expect { run }.to output(/Existing stop order.*JCO-stop/).to_stdout
+        expect(private_client).to have_received(:parent_order).once
+        expect(private_client).to have_received(:parent_order).with(parent_order_id: 'JCO-stop')
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
+      [{}, { 'side' => 'UNKNOWN' }].each do |metadata|
+        it "verifies stop details when the list side is #{metadata.fetch('side', 'missing')}" do
+          stub_responses(private_client, parent_orders: [parent.merge(metadata)])
+          stub_parent_detail
+
+          expect { run }.to output(/Existing stop order.*JCO-stop/).to_stdout
+          expect(private_client).to have_received(:parent_order).with(parent_order_id: 'JCO-stop').once
+          expect(private_client).not_to have_received(:send_parent_order)
+        end
       end
 
       it 'submits once and reports the existing stop on the next invocation' do

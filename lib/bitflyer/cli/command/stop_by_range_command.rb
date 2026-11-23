@@ -2,18 +2,18 @@
 
 require 'thor'
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/parent_order_lookup'
 require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/stop_submission'
 
-class StopByRangeCommand # rubocop:disable Metrics/ClassLength
+class StopByRangeCommand
   include HasHTTPClient
 
   alias http_private_client persistent_http_client
 
-  class LookupFailed < StandardError; end
+  LookupFailed = Bitflyer::Cli::ParentOrderLookup::LookupFailed
 
   PRODUCT_CODE = 'FX_BTC_JPY'
-  PAGE_SIZE = 100
   HISTORY_REQUEST_LIMIT = 10
   TERMINAL_STATES = %w[CANCELED EXPIRED REJECTED COMPLETED].freeze
   ACCEPTANCE_ID = 'parent_order_acceptance_id'
@@ -56,9 +56,8 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
   end
 
   def find_active_stop(stop, submission, pending)
-    find_parent_order('ACTIVE') { |entry| matching_stop?(entry, stop) }
-  rescue Timeout::Error, SocketError, SystemCallError, IOError,
-         OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError => e
+    parent_order_lookup.find('ACTIVE') { |entry| matching_stop?(entry, stop) }
+  rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
     message = "Failed to look up active parent orders: #{e.message}."
     submission.raise_unverified(message) if pending == Bitflyer::Cli::StopSubmission::UNVERIFIED
     raise LookupFailed, message
@@ -78,23 +77,12 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
   end
 
   def terminal_state(pending, record_path)
-    request_page = history_page_reader(pending, record_path)
-    TERMINAL_STATES.find do |state|
-      find_parent_order(state, request_page: request_page) { |order| order[ACCEPTANCE_ID] == pending }
+    parent_order_lookup.find_state(TERMINAL_STATES, max_requests: HISTORY_REQUEST_LIMIT) do |order|
+      order[ACCEPTANCE_ID] == pending
     end
-  end
-
-  def history_page_reader(pending, record_path)
-    remaining_requests = HISTORY_REQUEST_LIMIT
-    lambda do |state, before|
-      if remaining_requests.zero?
-        raise Thor::Error, "Stop order #{pending} still requires reconciliation after " \
-                           "#{HISTORY_REQUEST_LIMIT} history requests. Submission record: #{record_path}"
-      end
-
-      remaining_requests -= 1
-      parent_orders(state, before)
-    end
+  rescue Bitflyer::Cli::ParentOrderLookup::RequestLimitExceeded
+    raise Thor::Error, "Stop order #{pending} still requires reconciliation after " \
+                       "#{HISTORY_REQUEST_LIMIT} history requests. Submission record: #{record_path}"
   end
 
   def current_stop(range)
@@ -121,39 +109,13 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
     raise Thor::Error, 'Stop trigger price must be positive and finite.'
   end
 
-  def find_parent_order(state, request_page: method(:parent_orders), &match_order)
-    before = nil
-    loop do
-      orders = request_page.call(state, before)
-      match = orders.find(&match_order)
-      return match if match
-      return if orders.size < PAGE_SIZE
-
-      before = next_cursor(orders, before)
-    end
-  end
-
-  def next_cursor(orders, before)
-    ids = orders.map { |order| order['id'] }
-    if ids.all? { |id| id.is_a?(Integer) && id.positive? }
-      cursor = ids.min
-      return cursor if before.nil? || cursor < before
-    end
-
-    raise LookupFailed, 'Could not paginate active parent orders.'
-  end
-
-  def parent_orders(state, before)
-    orders = http_private_client.parent_orders(
-      product_code: PRODUCT_CODE, parent_order_state: state, count: PAGE_SIZE, before: before
-    )
-    return orders if orders.is_a?(Array)
-
-    raise LookupFailed, "Failed to look up #{state.downcase} parent orders: #{orders.inspect}"
+  def parent_order_lookup
+    Bitflyer::Cli::ParentOrderLookup.new(http_private_client, PRODUCT_CODE)
   end
 
   def matching_stop?(order, stop)
     return false unless order['parent_order_type'] == 'STOP'
+    return false if order['side'] == (stop.fetch(:side) == 'BUY' ? 'SELL' : 'BUY')
 
     detail = parent_order_detail(order.fetch('parent_order_id'))
     parameters = detail.fetch('parameters')

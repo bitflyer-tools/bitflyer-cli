@@ -3,6 +3,7 @@
 require 'bitflyer/cli/counter_trade_submission'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/order_rejected'
+require 'bitflyer/cli/protective_stop_check'
 require 'bitflyer/cli/persistent_http_client'
 
 class CounterTradeCommand
@@ -12,10 +13,7 @@ class CounterTradeCommand
 
   PRODUCT_CODE = 'FX_BTC_JPY'
   ACCEPTANCE_ID = 'child_order_acceptance_id'
-  COMMUNICATION_ERRORS = [
-    Timeout::Error, SocketError, SystemCallError, IOError, OpenSSL::SSL::SSLError,
-    Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError
-  ].freeze
+  COMMUNICATION_ERRORS = Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS
   TERMINAL_STATES = %w[COMPLETED CANCELED EXPIRED REJECTED].freeze
 
   def run
@@ -93,6 +91,7 @@ class CounterTradeCommand
     return unless size
 
     side = position.size.positive? ? 'SELL' : 'BUY'
+    Bitflyer::Cli::ProtectiveStopCheck.new(persistent_http_client, PRODUCT_CODE).verify!(side)
     submit_order(submission, position.size, side, size)
     puts "Clear position #{side} / #{size}"
   end
