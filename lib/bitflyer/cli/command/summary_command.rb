@@ -22,27 +22,38 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
   def run # rubocop:disable Metrics/MethodLength
     stdout = $stdout
     original_sync = stdout.sync
-    stdout.sync = true
-    stdout.print "\e[?25l"
+    feed_worker = poller = nil
 
-    feed = poller = nil
     Thread.handle_interrupt(Interrupt => :never) do
+      stdout.sync = true
+      stdout.print "\e[?25l"
       @execution = nil
-      feed = Bitflyer::Cli::RealtimeClient.new
-      subscribe_to_feed(feed)
+      @feed = nil
+      feed_worker = start_feed
       poller = Thread.new { poll_account }
     end
 
-    render
+    render(feed_worker)
   rescue Interrupt
     # exit
   ensure
     Thread.handle_interrupt(Interrupt => :never) do
-      restore_display(feed, poller, stdout, original_sync) if @account_snapshot
+      restore_display(feed_worker, poller, stdout, original_sync)
     end
   end
 
   private
+
+  def start_feed
+    # The worker inherits the Interrupt mask and accepts cancellation during network I/O.
+    Thread.start do
+      Thread.current.report_on_exception = false
+      @feed = Bitflyer::Cli::RealtimeClient.new
+      Thread.handle_interrupt(Interrupt => :on_blocking) { subscribe_to_feed(@feed) }
+    rescue Interrupt
+      # Stopped by the display thread.
+    end
+  end
 
   def subscribe_to_feed(feed)
     feed.disconnected = ->(_error) { @execution = nil }
@@ -52,9 +63,21 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     }
   end
 
-  def restore_display(feed, poller, stdout, original_sync)
+  def stop_workers(feed_worker, poller)
     poller&.kill&.join
-    feed&.shutdown
+  ensure
+    stop_feed(feed_worker)
+  end
+
+  def stop_feed(feed_worker)
+    feed_worker&.raise(Interrupt)
+    feed_worker&.join
+  ensure
+    @feed&.shutdown if feed_worker
+  end
+
+  def restore_display(feed_worker, poller, stdout, original_sync)
+    stop_workers(feed_worker, poller)
   ensure
     close_http_and_restore_cursor(stdout, original_sync)
   end
@@ -66,11 +89,12 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     stdout.sync = original_sync if stdout
   end
 
-  def render
+  def render(feed_worker)
     puts "\n" * 3
     previous_frame = previous_inputs = nil
 
     loop do
+      feed_worker.value unless feed_worker.alive?
       previous_inputs, previous_frame = redraw(previous_inputs, previous_frame)
       sleep 0.1
     end

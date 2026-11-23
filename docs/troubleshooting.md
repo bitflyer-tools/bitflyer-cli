@@ -24,8 +24,8 @@ need to look up a filled or canceled order, check your order history on bitFlyer
 
 ## What should I do if cancellation acceptance could not be verified?
 
-A connection failure or an HTTP 5xx response can leave the outcome of
-`cancel_order` unknown. Run `bitflyer open_orders` again and look for the ID in
-the relevant section before retrying. If you need to confirm the final state,
-check the order on bitFlyer. The CLI lists only active orders and uses the
-exchange's default result limit.
+Connection failures, HTTP 408 responses, and HTTP 5xx responses can leave the
+outcome of `cancel_order` unknown. Run `bitflyer open_orders` again and look for
+the ID in the relevant section before retrying. If you need to confirm the
+final state, check the order on bitFlyer. The CLI lists only active orders and
+uses the exchange's default result limit.
