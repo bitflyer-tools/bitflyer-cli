@@ -526,6 +526,20 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     end.to output("Could not verify cancellation acceptance from bitFlyer.\n").to_stderr
   end
 
+  it 'preserves a malformed counter trade record and exits before contacting bitFlyer' do
+    stub_credentials
+    path = File.join(Bitflyer::Cli::CounterTradeSubmission.state_directory, 'FX_BTC_JPY.json')
+    malformed_record = '{"credential":'
+    File.write(path, malformed_record)
+    expect(Net::HTTP).not_to receive(:start)
+
+    expect do
+      expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output(/Could not read the previous counter trade record\..*Record: #{Regexp.escape(path)}\n/m)
+      .to_stderr.and output('').to_stdout
+    expect(File.read(path)).to eq(malformed_record)
+  end
+
   context 'when reconciling a counter trade through the CLI' do
     let(:transport) { instance_double(Net::HTTP, started?: false) }
     let(:acceptance_id) { 'JRF20180101-000000-000001' }
