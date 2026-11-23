@@ -4,6 +4,7 @@ require 'thor'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/parent_order_lookup'
 require 'bitflyer/cli/persistent_http_client'
+require 'bitflyer/cli/stop_order_matcher'
 require 'bitflyer/cli/stop_submission'
 
 class StopByRangeCommand
@@ -53,7 +54,8 @@ class StopByRangeCommand
   end
 
   def find_active_stop(stop, submission, pending)
-    parent_order_lookup.find('ACTIVE') { |entry| matching_stop?(entry, stop) }
+    matcher = Bitflyer::Cli::StopOrderMatcher.new(http_private_client, stop)
+    parent_order_lookup.find('ACTIVE') { |entry| matcher.matches?(entry) }
   rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
     message = "Failed to look up active parent orders: #{e.message}."
     submission.raise_unverified(message) if pending == Bitflyer::Cli::StopSubmission::UNVERIFIED
@@ -99,23 +101,6 @@ class StopByRangeCommand
 
   def parent_order_lookup
     Bitflyer::Cli::ParentOrderLookup.new(http_private_client, PRODUCT_CODE)
-  end
-
-  def matching_stop?(order, stop)
-    return false unless order['parent_order_type'] == 'STOP'
-    return false if order['side'] == (stop.fetch(:side) == 'BUY' ? 'SELL' : 'BUY')
-
-    detail = parent_order_detail(order.fetch('parent_order_id'))
-    parameters = detail.fetch('parameters')
-    detail['order_method'] == 'SIMPLE' && parameters.one? &&
-      stop.all? { |key, value| parameters.first[key.to_s] == value }
-  end
-
-  def parent_order_detail(order_id)
-    detail = http_private_client.parent_order(parent_order_id: order_id)
-    return detail if detail.is_a?(Hash) && detail['parameters'].is_a?(Array)
-
-    raise LookupFailed, "Failed to look up parent order #{order_id}: #{detail.inspect}"
   end
 
   def submit_stop(stop, description, submission)

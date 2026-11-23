@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 require 'digest'
-require 'fileutils'
 require 'json'
 require 'thor'
 require 'bitflyer/cli/durable_file'
+require 'bitflyer/cli/submission_state_directory'
 
 module Bitflyer
   module Cli
@@ -21,7 +21,7 @@ module Bitflyer
       end
 
       def synchronize
-        FileUtils.mkdir_p(File.dirname(@path), mode: 0o700)
+        SubmissionStateDirectory.prepare(File.dirname(@path))
         File.open("#{@path}.lock", File::RDWR | File::CREAT | File::NOFOLLOW, 0o600) do |lock|
           raise IOError, "Could not lock counter trade: #{@path}" unless lock.flock(File::LOCK_EX)
 
@@ -30,7 +30,7 @@ module Bitflyer
       end
 
       def pending
-        record = JSON.parse(File.read(@path))
+        record = JSON.parse(File.read(@path, mode: File::RDONLY | File::NOFOLLOW))
         if !record.is_a?(Hash) || record['credential'] != @credential
           require_reconciliation('Use the original API key to reconcile the previous counter trade.')
         end

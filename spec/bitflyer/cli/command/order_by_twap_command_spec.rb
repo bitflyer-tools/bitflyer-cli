@@ -120,6 +120,17 @@ describe OrderByTWAPCommand do
     end
   end
 
+  context 'when the exchange status is a negative fraction' do
+    let(:number_of_times) { 2 }
+    let(:response) { { 'status' => -1.5 } }
+
+    it 'reports unverified acceptance and stops before the next slice' do
+      expect { run }.to output(/0 accepted, 0 rejected, 1 unverified, 1 unattempted/).to_stdout
+      expect(private_client).to have_received(:send_child_order).once
+      expect(command).not_to have_received(:sleep)
+    end
+  end
+
   context 'when the acceptance ID is a non-breaking space' do
     let(:response) { { 'child_order_acceptance_id' => "\u00A0" } }
 

@@ -2,12 +2,13 @@
 
 require 'bigdecimal'
 require 'digest'
-require 'fileutils'
 require 'json'
 require 'thor'
 require 'bitflyer/cli/durable_file'
 require 'bitflyer/cli/order_rejected'
 require 'bitflyer/cli/parent_order_lookup'
+require 'bitflyer/cli/persistent_http_client'
+require 'bitflyer/cli/submission_state_directory'
 
 module Bitflyer
   module Cli
@@ -39,7 +40,7 @@ module Bitflyer
       end
 
       def synchronize
-        FileUtils.mkdir_p(File.dirname(@path), mode: 0o700)
+        SubmissionStateDirectory.prepare(File.dirname(@path))
         File.open(@lock_path, File::RDWR | File::CREAT | File::NOFOLLOW, 0o600) do |lock|
           raise IOError, "Could not lock stop submission: #{@path}" unless lock.flock(File::LOCK_EX)
 
@@ -48,7 +49,7 @@ module Bitflyer
       end
 
       def pending
-        value = File.read(@path)
+        value = File.read(@path, mode: File::RDONLY | File::NOFOLLOW)
         value.strip.empty? ? UNVERIFIED : value
       rescue Errno::ENOENT
         nil
@@ -79,14 +80,16 @@ module Bitflyer
       private
 
       def terminal_state(pending, lookup)
-        state, order = lookup.find_across_states(TERMINAL_STATES, max_requests: HISTORY_REQUEST_LIMIT) do |entry|
-          entry[ACCEPTANCE_ID] == pending
-        end
+        matches_pending = ->(entry) { entry[ACCEPTANCE_ID] == pending }
+        state, order = lookup.find_across_states(TERMINAL_STATES, max_requests: HISTORY_REQUEST_LIMIT, &matches_pending)
         confirm_zero_fill!(order, state, pending) if order && state != 'COMPLETED'
         state
       rescue ParentOrderLookup::RequestLimitExceeded
         raise Thor::Error, "Stop order #{pending} still requires reconciliation after " \
                            "#{HISTORY_REQUEST_LIMIT} history requests. Submission record: #{path}"
+      rescue *PersistentHTTPClient::COMMUNICATION_ERRORS => e
+        raise ParentOrderLookup::LookupFailed,
+              "Failed to look up terminal parent orders: #{e.message}. Submission record: #{path}"
       end
 
       def confirm_zero_fill!(order, state, pending)
@@ -113,25 +116,19 @@ module Bitflyer
       end
 
       def record_response(response, acceptance_key)
-        status = response.status
-        body = response.body
-        acceptance_id = body[acceptance_key] if body.is_a?(Hash)
-        if acceptance_id.nil? && definite_rejection?(status, body)
+        case OrderRejected.classify(response, acceptance_key)
+        when :accepted
+          record(response.body.fetch(acceptance_key))
+        when :rejected
           clear
-          OrderRejected.check!(body, acceptance_key)
+          OrderRejected.raise_rejection!(response.body)
+        else
+          raise_unverified("Could not verify stop order acceptance (HTTP #{response.status}).")
         end
-        return record(acceptance_id) if OrderRejected.accepted?(status, acceptance_id, body)
-
-        raise_unverified("Could not verify stop order acceptance (HTTP #{status}).")
       end
 
       def clear
         File.unlink(@path)
-      end
-
-      def definite_rejection?(status, body)
-        verifiable = status.between?(200, 299) || (status.between?(400, 499) && status != 408)
-        verifiable && body.is_a?(Hash) && body['status'].is_a?(Integer) && body['status'].negative?
       end
     end
   end

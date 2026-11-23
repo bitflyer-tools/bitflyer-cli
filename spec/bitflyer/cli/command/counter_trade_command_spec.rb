@@ -35,7 +35,7 @@ describe 'Loading the counter trade command on its own' do
 
     lib = File.expand_path('../../../../lib', __dir__)
     stdout, stderr, status = Dir.mktmpdir do |directory|
-      env = { 'XDG_STATE_HOME' => directory, 'BITFLYER_API_KEY' => 'key', 'BITFLYER_API_SECRET' => 'secret' }
+      env = { 'XDG_STATE_HOME' => File.realpath(directory), 'BITFLYER_API_KEY' => 'key', 'BITFLYER_API_SECRET' => 'secret' }
       Open3.capture3(env, RbConfig.ruby, '-I', lib, '-e', script)
     end
 
@@ -92,6 +92,12 @@ describe CounterTradeCommand, :counter_trade_state do
   context 'with a long position' do
     let(:positions) do
       [position(side: 'BUY', price: 1_000_000, size: 0.1), position(side: 'BUY', price: 1_000_000, size: 0.2)]
+    end
+
+    include_examples 'rejects unsafe submission state', Bitflyer::Cli::CounterTradeSubmission, :send_child_order do
+      def run_submission_command
+        described_class.new.run
+      end
     end
 
     it 'sells the whole position at market' do
@@ -193,8 +199,10 @@ describe CounterTradeCommand, :counter_trade_state do
     let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.1)] }
     let(:accepted) { { 'status' => -205 } }
 
-    it 'raises with the exchange rejection' do
+    it 'raises with the exchange rejection and allows another submission' do
       expect { described_class.new.run }.to raise_error(Bitflyer::Cli::OrderRejected, /Order rejected:.*-205/)
+      expect { described_class.new.run }.to raise_error(Bitflyer::Cli::OrderRejected, /Order rejected:.*-205/)
+      expect(private_client).to have_received(:send_child_order).twice
     end
   end
 
@@ -229,6 +237,16 @@ describe CounterTradeCommand, :counter_trade_state do
       expect { described_class.new.run }.to raise_error(Thor::Error, /communication error/)
       expect { described_class.new.run }.to raise_error(Thor::Error, /acceptance is unverified/)
       expect(private_client).to have_received(:send_child_order).once
+    end
+
+    context 'with a negative fractional exchange status' do
+      let(:accepted) { { 'status' => -1.5 } }
+
+      it 'retains the unverified record and suppresses resubmission' do
+        expect { described_class.new.run }.to raise_error(Thor::Error, /HTTP 200/)
+        expect { described_class.new.run }.to raise_error(Thor::Error, /acceptance is unverified/)
+        expect(private_client).to have_received(:send_child_order).once
+      end
     end
 
     context 'with a gateway error carrying an exchange error body' do
@@ -328,7 +346,7 @@ describe 'Concurrent counter trades' do
     lib = File.expand_path('../../../../lib', __dir__)
     Dir.mktmpdir do |directory|
       log = File.join(directory, 'orders')
-      env = { 'XDG_STATE_HOME' => directory, 'ORDER_LOG' => log,
+      env = { 'XDG_STATE_HOME' => File.realpath(directory), 'ORDER_LOG' => log,
               'BITFLYER_API_KEY' => 'key', 'BITFLYER_API_SECRET' => 'secret' }
       command = [RbConfig.ruby, '-I', lib, '-e', script]
 
