@@ -388,6 +388,34 @@ describe StopByRangeCommand, :stop_state do
         end
       end
 
+      it 'fetches only the matching stop detail after 20 same-side stops with a different size' do
+        other_stops = (2..21).map do |id|
+          parent.merge('id' => id, 'parent_order_id' => "JCO-other-#{id}", 'side' => 'SELL', 'size' => 0.02)
+        end
+        matching_stop = parent.merge('side' => 'SELL', 'size' => 0.01)
+        stub_responses(private_client, positions: positions.map { |position| position.merge('size' => 0.01) },
+                                       parent_orders: other_stops + [matching_stop])
+        stub_parent_detail(parameters: [parameters.merge('size' => 0.02)])
+        allow(private_client).to receive(:parent_order).with(parent_order_id: 'JCO-stop')
+          .and_return('order_method' => 'SIMPLE', 'parameters' => [parameters.merge('size' => 0.01)])
+
+        expect { run }.to output(/Existing stop order.*JCO-stop/).to_stdout
+        expect(private_client).to have_received(:parent_order).once
+        expect(private_client).to have_received(:parent_order).with(parent_order_id: 'JCO-stop')
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
+      [{}, { 'size' => '0.02 BTC' }, { 'size' => 0 }, { 'size' => -0.02 }, { 'size' => '1e999' }].each do |metadata|
+        it "verifies stop details when the list size is #{metadata.fetch('size', 'missing')}" do
+          stub_responses(private_client, parent_orders: [parent.merge(metadata)])
+          stub_parent_detail
+
+          expect { run }.to output(/Existing stop order.*JCO-stop/).to_stdout
+          expect(private_client).to have_received(:parent_order).with(parent_order_id: 'JCO-stop').once
+          expect(private_client).not_to have_received(:send_parent_order)
+        end
+      end
+
       it 'submits once and reports the existing stop on the next invocation' do
         expect { run }.to output(/Set stop order/).to_stdout
         stub_responses(private_client, parent_orders: [parent.merge(response)])
@@ -434,7 +462,7 @@ describe StopByRangeCommand, :stop_state do
         'trigger_price' => 994_000, 'size' => 0.1
       }.each do |key, value|
         it "submits a stop when the active order has a different #{key}" do
-          stub_responses(private_client, parent_orders: [parent])
+          stub_responses(private_client, parent_orders: [parent.merge('size' => parameters.fetch('size'))])
           stub_parent_detail(parameters: [parameters.merge(key => value)])
 
           expect { run }.to output(/Set stop order/).to_stdout
