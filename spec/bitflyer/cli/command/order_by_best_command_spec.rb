@@ -2,12 +2,13 @@ require 'spec_helper'
 
 describe OrderByBestCommand do
   let!(:public_client) { stub_public_client }
-  let!(:private_client) { stub_private_client }
+  let!(:private_client) { stub_persistent_client }
   let(:response) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' } }
 
   before do
     stub_responses(public_client, ticker: { 'best_bid' => 1_000_000, 'best_ask' => 1_000_100 })
-    stub_responses(private_client, send_child_order: response)
+    submission = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, response)
+    stub_responses(private_client, send_child_order: submission)
   end
 
   def run(type, amount: 0.01)

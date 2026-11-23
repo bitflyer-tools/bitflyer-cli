@@ -2,12 +2,13 @@ require 'spec_helper'
 
 describe IFDOCOByRangeCommand do
   let!(:public_client) { stub_public_client }
-  let!(:private_client) { stub_private_client }
+  let!(:private_client) { stub_persistent_client }
   let(:response) { { 'parent_order_acceptance_id' => 'JRF20180101-000000-000001' } }
 
   before do
     stub_responses(public_client, ticker: { 'ltp' => 1_000_000 })
-    stub_responses(private_client, send_parent_order: response)
+    submission = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, response)
+    stub_responses(private_client, send_parent_order: submission)
   end
 
   def run(type, **overrides)
