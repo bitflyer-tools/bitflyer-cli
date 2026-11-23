@@ -1,9 +1,13 @@
 # frozen_string_literal: true
 
+require 'bigdecimal'
 require 'digest'
 require 'json'
+require 'thor'
 require 'bitflyer/cli/durable_file'
 require 'bitflyer/cli/order_rejected'
+require 'bitflyer/cli/parent_order_lookup'
+require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/submission_state_directory'
 
 module Bitflyer
@@ -14,6 +18,9 @@ module Bitflyer
       UNVERIFIED = 'unverified'
       COMPLETED_PREFIX = 'completed:'
       LOCK_COUNT = 64
+      HISTORY_REQUEST_LIMIT = 10
+      TERMINAL_STATES = %w[CANCELED EXPIRED REJECTED COMPLETED].freeze
+      ACCEPTANCE_ID = 'parent_order_acceptance_id'
       # Preserve the field order used by existing records and lock slots.
       IDENTITY_FIELDS = %i[product_code condition_type side trigger_price size].freeze
 
@@ -48,13 +55,13 @@ module Bitflyer
         nil
       end
 
-      def reconcile(acceptance_id)
+      def reconcile(acceptance_id, lookup)
         return [acceptance_id, nil] if acceptance_id == UNVERIFIED
         if acceptance_id.start_with?(COMPLETED_PREFIX)
           return [acceptance_id.delete_prefix(COMPLETED_PREFIX), 'COMPLETED']
         end
 
-        state = yield
+        state = terminal_state(acceptance_id, lookup)
         record("#{COMPLETED_PREFIX}#{acceptance_id}") if state == 'COMPLETED'
         clear if state && state != 'COMPLETED'
         [acceptance_id, state]
@@ -71,6 +78,31 @@ module Bitflyer
       end
 
       private
+
+      def terminal_state(pending, lookup)
+        matches_pending = ->(entry) { entry[ACCEPTANCE_ID] == pending }
+        state, order = lookup.find_across_states(TERMINAL_STATES, max_requests: HISTORY_REQUEST_LIMIT, &matches_pending)
+        confirm_zero_fill!(order, state, pending) if order && state != 'COMPLETED'
+        state
+      rescue ParentOrderLookup::RequestLimitExceeded
+        raise Thor::Error, "Stop order #{pending} still requires reconciliation after " \
+                           "#{HISTORY_REQUEST_LIMIT} history requests. Submission record: #{path}"
+      rescue *PersistentHTTPClient::COMMUNICATION_ERRORS => e
+        raise ParentOrderLookup::LookupFailed,
+              "Failed to look up terminal parent orders: #{e.message}. Submission record: #{path}"
+      end
+
+      def confirm_zero_fill!(order, state, pending)
+        executed_size = BigDecimal(order['executed_size'].to_s, exception: false)
+        return if executed_size&.zero?
+
+        detail = if executed_size&.finite? && executed_size.positive?
+                   "executed #{executed_size.to_s('F')} BTC. Wait for the position to reflect the fill before retrying."
+                 else
+                   'has an unconfirmed executed size. Check the order in bitFlyer before retrying.'
+                 end
+        raise Thor::Error, "Previous stop order (#{pending}, #{state}) #{detail} Submission record: #{path}"
+      end
 
       def receive_response
         yield
