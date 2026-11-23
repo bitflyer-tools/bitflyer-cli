@@ -8,11 +8,14 @@ module Bitflyer
       PostResponse = Struct.new(:status, :body)
 
       class GetResponseError < Net::HTTPBadResponse
-        attr_reader :api_error
+        attr_reader :api_error, :api_message
 
         def initialize(status, body)
           super("HTTP request failed (status #{status})")
-          @api_error = body.inspect if body.is_a?(Hash)
+          return unless body.is_a?(Hash)
+
+          @api_error = body.inspect
+          @api_message = body['error_message'].to_s
         end
       end
 

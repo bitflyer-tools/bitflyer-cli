@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/terminal_text'
 
 class OpenOrdersCommand
@@ -8,17 +9,29 @@ class OpenOrdersCommand
 
   class LookupFailed < StandardError; end
 
+  PRODUCT_CODE = 'FX_BTC_JPY'
+
   def run
-    children = http_private_client.child_orders(product_code: 'FX_BTC_JPY', child_order_state: 'ACTIVE')
+    children = lookup('child') { |http| http.child_orders(product_code: PRODUCT_CODE, child_order_state: 'ACTIVE') }
     child_rows = order_rows(children, 'child') { |order| child_row(order) }
-    parents = http_private_client.parent_orders(product_code: 'FX_BTC_JPY', parent_order_state: 'ACTIVE')
+    parents = lookup('parent') { |http| http.parent_orders(product_code: PRODUCT_CODE, parent_order_state: 'ACTIVE') }
     parent_rows = order_rows(parents, 'parent') { |order| parent_row(order) }
 
     print_orders('Child orders', 'Order ID | Type | Side | Price (JPY) | Remaining size (BTC)', child_rows)
     print_orders('Parent strategies', 'Order ID | Strategy type | Order date', parent_rows)
+  ensure
+    close_persistent_http_client
   end
 
   private
+
+  def lookup(type)
+    yield persistent_http_client
+  rescue Bitflyer::Cli::PersistentHTTPClient::GetResponseError => e
+    raise lookup_failure(type, e.api_message.to_s.empty? ? e.message : e.api_message)
+  rescue Net::HTTPBadResponse => e
+    raise lookup_failure(type, e.message)
+  end
 
   def order_rows(orders, type, &)
     id_key = "#{type}_order_id"
@@ -26,7 +39,11 @@ class OpenOrdersCommand
 
     message = orders['error_message'].to_s if orders.is_a?(Hash)
     detail = message.to_s.empty? ? 'Unexpected response from bitFlyer.' : message
-    raise LookupFailed, "Could not list #{type} orders. #{Bitflyer::Cli::TerminalText.escape(detail)}"
+    raise lookup_failure(type, detail)
+  end
+
+  def lookup_failure(type, detail)
+    LookupFailed.new("Could not list #{type} orders. #{Bitflyer::Cli::TerminalText.escape(detail)}")
   end
 
   def valid_order?(order, id_key)
