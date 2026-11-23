@@ -262,6 +262,7 @@ describe 'Persistent exchange HTTPS' do
 
     command = SummaryCommand.new
     poller = nil
+    allow(command).to receive(:start_feed).and_wrap_original { |start| start.call.tap(&:join) }
     allow(Thread).to receive(:new) do |&poll|
       poller = Fiber.new(&poll)
       poller.resume
