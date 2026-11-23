@@ -4,6 +4,7 @@ updates:
     directories:
       - "/"
       - "/gemfiles/with_coverage"
+      - "/.github/release"
     schedule:
       interval: daily
       time: "12:00"
