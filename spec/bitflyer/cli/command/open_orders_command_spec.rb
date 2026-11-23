@@ -1,7 +1,7 @@
 require 'spec_helper'
 
 describe OpenOrdersCommand do
-  let(:client) { stub_private_client }
+  let(:client) { stub_persistent_client }
 
   it 'lists active child orders and parent strategies with their cancellation IDs' do
     stub_responses(client, child_orders: [{

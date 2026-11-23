@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/terminal_text'
 
 class OpenOrdersCommand
@@ -9,16 +10,36 @@ class OpenOrdersCommand
   class LookupFailed < StandardError; end
 
   def run
-    children = http_private_client.child_orders(product_code: 'FX_BTC_JPY', child_order_state: 'ACTIVE')
-    child_rows = order_rows(children, 'child') { |order| child_row(order) }
-    parents = http_private_client.parent_orders(product_code: 'FX_BTC_JPY', parent_order_state: 'ACTIVE')
-    parent_rows = order_rows(parents, 'parent') { |order| parent_row(order) }
-
+    child_rows = active_child_rows
+    parent_rows = active_parent_rows
     print_orders('Child orders', 'Order ID | Type | Side | Price (JPY) | Remaining size (BTC)', child_rows)
     print_orders('Parent strategies', 'Order ID | Strategy type | Order date', parent_rows)
+  ensure
+    close_persistent_http_client
   end
 
   private
+
+  def active_child_rows
+    orders = fetch_orders('child') do
+      persistent_http_client.child_orders(product_code: 'FX_BTC_JPY', child_order_state: 'ACTIVE')
+    end
+    order_rows(orders, 'child') { |order| child_row(order) }
+  end
+
+  def active_parent_rows
+    orders = fetch_orders('parent') do
+      persistent_http_client.parent_orders(product_code: 'FX_BTC_JPY', parent_order_state: 'ACTIVE')
+    end
+    order_rows(orders, 'parent') { |order| parent_row(order) }
+  end
+
+  def fetch_orders(type)
+    yield
+  rescue Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError, SocketError, SystemCallError, IOError, Timeout::Error,
+         OpenSSL::SSL::SSLError => e
+    raise LookupFailed, "Could not list #{type} orders. #{Bitflyer::Cli::TerminalText.escape(e.message)}"
+  end
 
   def order_rows(orders, type, &)
     id_key = "#{type}_order_id"

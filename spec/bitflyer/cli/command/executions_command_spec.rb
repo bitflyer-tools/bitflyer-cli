@@ -1,7 +1,7 @@
 require 'spec_helper'
 
 describe ExecutionsCommand do
-  let(:client) { stub_private_client }
+  let(:client) { stub_persistent_client }
 
   it 'prints each fill on a separate row when looking up a child order' do
     fill = {
@@ -40,7 +40,7 @@ describe ExecutionsCommand do
   end
 
   it 'rejects two filters before creating a private client' do
-    expect(Bitflyer).not_to receive(:http_private_client)
+    expect(Bitflyer::Cli::PersistentHTTPClient).not_to receive(:new)
 
     expect { described_class.new.run(child_order_id: 'JOR-order', child_order_acceptance_id: 'JRF-accepted') }
       .to raise_error(described_class::LookupFailed, /Specify only one/)

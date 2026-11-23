@@ -247,10 +247,12 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     expect(transport).to have_received(:request).once
   end
 
-  it 'exits before constructing an SDK private client when credentials are missing' do
+  let(:lookup_client) { stub_persistent_client }
+
+  it 'exits before constructing a private client when credentials are missing' do
     stub_credentials
     allow(ENV).to receive(:fetch).with('BITFLYER_API_KEY', nil).and_return(nil)
-    expect(Bitflyer).not_to receive(:http_private_client)
+    expect(Bitflyer::Cli::PersistentHTTPClient).not_to receive(:new)
 
     expect do
       expect { run_cli('open_orders') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -258,7 +260,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
   end
 
   it 'routes open_orders through the CLI' do
-    stub_responses(private_client, child_orders: [], parent_orders: [])
+    stub_responses(lookup_client, child_orders: [], parent_orders: [])
 
     expect { run_cli('open_orders') }.to output("Child orders\nNone.\nParent strategies\nNone.\n").to_stdout
   end
@@ -272,7 +274,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     }.each do |description, record|
       it "rejects #{description} in the #{type} orders response without printing rows" do
         responses = { child_orders: [{ 'child_order_id' => 'JOR-order' }], parent_orders: [] }
-        stub_responses(private_client, **responses.merge(:"#{type}_orders" => [record]))
+        stub_responses(lookup_client, **responses.merge(:"#{type}_orders" => [record]))
 
         expect do
           expect { run_cli('open_orders') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -282,16 +284,16 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
   end
 
   it 'routes executions with a TWAP acceptance ID through the CLI' do
-    stub_responses(private_client, executions: [])
+    stub_responses(lookup_client, executions: [])
 
     expect { run_cli('executions', '--child-order-acceptance-id', 'JRF-accepted') }
       .to output("No executions found.\n").to_stdout
-    expect(private_client).to have_received(:executions)
+    expect(lookup_client).to have_received(:executions)
       .with(product_code: 'FX_BTC_JPY', count: 100, child_order_acceptance_id: 'JRF-accepted').once
   end
 
   it 'prints an execution lookup rejection to stderr and exits unsuccessfully' do
-    stub_responses(private_client, executions: { 'status' => -1, 'error_message' => 'Permission denied' })
+    stub_responses(lookup_client, executions: { 'status' => -1, 'error_message' => 'Permission denied' })
 
     expect do
       expect { run_cli('executions') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -301,7 +303,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
   { 'open_orders' => [:child_orders, 'child orders'], 'executions' => [:executions, 'executions'] }.each do
     |command, (lookup, label)|
     it "escapes terminal controls in the #{command} diagnostic on stderr" do
-      stub_responses(private_client, lookup => { 'status' => -1, 'error_message' => "Denied\r\n\e[2J" })
+      stub_responses(lookup_client, lookup => { 'status' => -1, 'error_message' => "Denied\r\n\e[2J" })
 
       expect do
         expect { run_cli(command) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -329,7 +331,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
                           when :missing then fill.reject { |key| key == 'child_order_acceptance_id' }
                           else fill.merge('child_order_acceptance_id' => acceptance_id)
                           end
-        stub_responses(private_client, executions: [fill, incomplete_fill])
+        stub_responses(lookup_client, executions: [fill, incomplete_fill])
 
         expect do
           expect { run_cli('executions') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -338,28 +340,51 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     end
   end
 
-  context 'with the SDK executions client' do
+  context 'with HTTP responses for order and execution lookups' do
+    let(:transport) { instance_double(Net::HTTP, started?: true, finish: nil) }
+    let(:empty_response) { instance_double(Net::HTTPOK, code: '200', body: '[]') }
+
     before do
       stub_credentials
-      transport = instance_double(Net::HTTP, request: response)
-      allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true).and_yield(transport)
+      allow(Net::HTTP).to receive(:start)
+        .with('api.bitflyer.jp', 443, use_ssl: true, keep_alive_timeout: 30).and_return(transport)
+      allow(transport).to receive(:request).and_return(empty_response)
     end
 
     context 'when the HTTP 503 response has no body' do
-      let(:response) { instance_double(Net::HTTPServiceUnavailable, code: '503', body: nil) }
-
       it 'prints a lookup diagnostic without a table and exits with status 1' do
+        allow(transport).to receive(:request)
+          .and_return(instance_double(Net::HTTPServiceUnavailable, code: '503', body: nil))
+
         expect do
           expect { run_cli('executions') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
         end.to output(/\ACould not list executions\.[^\n]*\n\z/).to_stderr.and output('').to_stdout
       end
     end
 
-    context 'when the HTTP 200 response contains an empty array' do
-      let(:response) { instance_double(Net::HTTPOK, code: '200', body: '[]') }
+    {
+      'child orders' => ['open_orders', 'getchildorders'],
+      'parent orders' => ['open_orders', 'getparentorders'],
+      'executions' => ['executions', 'getexecutions']
+    }.each do |label, (command, endpoint)|
+      it "rejects HTTP 503 with an empty array when listing #{label}" do
+        allow(transport).to receive(:request).with(an_object_having_attributes(path: %r{\A/v1/me/#{endpoint}\?}))
+          .and_return(instance_double(Net::HTTPServiceUnavailable, code: '503', body: '[]'))
 
-      it 'prints the empty result and completes successfully' do
-        expect { run_cli('executions') }.to output("No executions found.\n").to_stdout.and output('').to_stderr
+        expect do
+          expect { run_cli(command) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Could not list #{label}. HTTP request failed (status 503)\n").to_stderr.and output('').to_stdout
+        expect(transport).to have_received(:finish).once
+      end
+    end
+
+    {
+      'open_orders' => "Child orders\nNone.\nParent strategies\nNone.\n",
+      'executions' => "No executions found.\n"
+    }.each do |command, message|
+      it "prints the empty result for #{command} on HTTP 200" do
+        expect { run_cli(command) }.to output(message).to_stdout.and output('').to_stderr
+        expect(transport).to have_received(:finish).once
       end
     end
   end

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'bitflyer/cli/has_http_client'
+require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/terminal_text'
 
 class ExecutionsCommand
@@ -23,18 +24,21 @@ class ExecutionsCommand
 
     rows = executions.map { |execution| Bitflyer::Cli::TerminalText.escape(execution.values_at(*FIELDS).join(' | ')) }
     puts HEADER, rows
+  ensure
+    close_persistent_http_client
   end
 
   private
 
   def fetch_executions(filters)
-    response = http_private_client.executions(product_code: 'FX_BTC_JPY', count: PAGE_SIZE, **filters)
+    response = persistent_http_client.executions(product_code: 'FX_BTC_JPY', count: PAGE_SIZE, **filters)
     return response if response.is_a?(Array) && response.all? { |execution| complete_execution?(execution) }
 
     message = response['error_message'].to_s if response.is_a?(Hash)
     detail = message.to_s.empty? ? 'Unexpected response from bitFlyer.' : message
     raise LookupFailed, "Could not list executions. #{Bitflyer::Cli::TerminalText.escape(detail)}"
-  rescue SocketError, SystemCallError, IOError, Timeout::Error, OpenSSL::SSL::SSLError, TypeError => e
+  rescue Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError, SocketError, SystemCallError, IOError, Timeout::Error,
+         OpenSSL::SSL::SSLError, TypeError => e
     raise LookupFailed, "Could not list executions. #{Bitflyer::Cli::TerminalText.escape(e.message)}"
   end
 
