@@ -9,9 +9,13 @@ class OpenOrdersCommand
   class LookupFailed < StandardError; end
 
   def run
-    children = http_private_client.child_orders(product_code: 'FX_BTC_JPY', child_order_state: 'ACTIVE')
+    children = fetch_orders('child') do
+      http_private_client.child_orders(product_code: 'FX_BTC_JPY', child_order_state: 'ACTIVE')
+    end
     child_rows = order_rows(children, 'child') { |order| child_row(order) }
-    parents = http_private_client.parent_orders(product_code: 'FX_BTC_JPY', parent_order_state: 'ACTIVE')
+    parents = fetch_orders('parent') do
+      http_private_client.parent_orders(product_code: 'FX_BTC_JPY', parent_order_state: 'ACTIVE')
+    end
     parent_rows = order_rows(parents, 'parent') { |order| parent_row(order) }
 
     print_orders('Child orders', 'Order ID | Type | Side | Price (JPY) | Remaining size (BTC)', child_rows)
@@ -19,6 +23,13 @@ class OpenOrdersCommand
   end
 
   private
+
+  def fetch_orders(type)
+    yield
+  rescue Timeout::Error, SocketError, SystemCallError, IOError,
+         OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError => e
+    raise LookupFailed, "Could not list #{type} orders. #{Bitflyer::Cli::TerminalText.escape(e.message)}"
+  end
 
   def order_rows(orders, type, &)
     id_key = "#{type}_order_id"
