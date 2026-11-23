@@ -24,9 +24,9 @@ module Bitflyer
         def initialize(**options)
           @lifecycle = Mutex.new
           super
-        rescue StandardError
-          shutdown
-          raise
+          initialized = true
+        ensure
+          shutdown unless initialized
         end
 
         def shutdown
@@ -101,7 +101,7 @@ module Bitflyer
 
         def start(transport)
           register_handlers(transport)
-          @driver.start
+          Thread.handle_interrupt(Interrupt => :on_blocking) { @driver.start }
           @reader = Thread.new { read_messages(transport) }
         rescue StandardError
           close
@@ -145,16 +145,25 @@ module Bitflyer
         end
 
         def connect_tls(endpoint)
-          tcp_socket = connect_tcp(endpoint)
+          tcp_socket = nil
+          Thread.handle_interrupt(Interrupt => :on_blocking) { tcp_socket = connect_tcp(endpoint) }
+          socket = tls_socket(endpoint, tcp_socket)
+          Thread.handle_interrupt(Interrupt => :on_blocking) do
+            Timeout.timeout(TLS_HANDSHAKE_TIMEOUT, SocketError, 'TLS handshake timed out') { socket.connect }
+          end
+          connected = true
+          socket
+        ensure
+          tcp_socket&.close unless connected
+        end
+
+        def tls_socket(endpoint, tcp_socket)
           context = OpenSSL::SSL::SSLContext.new
           context.set_params(verify_mode: OpenSSL::SSL::VERIFY_PEER, verify_hostname: true)
           socket = OpenSSL::SSL::SSLSocket.new(tcp_socket, context)
           socket.sync_close = true
           socket.hostname = endpoint.host
-          Timeout.timeout(TLS_HANDSHAKE_TIMEOUT, SocketError, 'TLS handshake timed out') { socket.connect }
-        rescue StandardError
-          tcp_socket&.close
-          raise
+          socket
         end
 
         def connect_tcp(endpoint)

@@ -7,6 +7,11 @@ module Bitflyer
     class PersistentHTTPClient < HTTP::Private::Client
       PostResponse = Struct.new(:status, :body)
 
+      COMMUNICATION_ERRORS = [
+        Timeout::Error, SocketError, SystemCallError, IOError, OpenSSL::SSL::SSLError,
+        Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError
+      ].freeze
+
       class GetResponseError < Net::HTTPBadResponse
         attr_reader :api_error, :api_message
 

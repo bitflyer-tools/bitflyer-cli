@@ -29,7 +29,7 @@ class OpenOrdersCommand
     yield persistent_http_client
   rescue Bitflyer::Cli::PersistentHTTPClient::GetResponseError => e
     raise lookup_failure(type, e.api_message.to_s.empty? ? e.message : e.api_message)
-  rescue Net::HTTPBadResponse => e
+  rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
     raise lookup_failure(type, e.message)
   end
 
