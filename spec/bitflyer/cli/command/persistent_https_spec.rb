@@ -9,6 +9,55 @@ describe 'Persistent exchange HTTPS' do
   before { stub_credentials }
   after { @server&.stop }
 
+  context 'when listing open orders' do
+    let(:lookup_requests) do
+      [
+        [1, 'GET', '/v1/me/getchildorders?product_code=FX_BTC_JPY&child_order_state=ACTIVE'],
+        [1, 'GET', '/v1/me/getparentorders?product_code=FX_BTC_JPY&parent_order_state=ACTIVE']
+      ]
+    end
+
+    it 'lists both order types on one TLS connection and closes it on exit' do
+      start_server { [[], false] }
+
+      expect { Bitflyer::Cli::Runner.start(%w[open_orders]) }
+        .to output("Child orders\nNone.\nParent strategies\nNone.\n").to_stdout
+
+      expect_open_order_requests
+    end
+
+    it 'reports a failed parent lookup and closes the connection without printing either table' do
+      start_server do |_path, number|
+        number == 1 ? [[], false] : [{ error_message: 'Permission denied' }, false, '403 Forbidden']
+      end
+      stub_const('ARGV', %w[open_orders])
+
+      expect do
+        expect { load File.expand_path('../../../../exe/bitflyer', __dir__) }
+          .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not list parent orders. Permission denied\n").to_stderr.and output('').to_stdout
+
+      expect_open_order_requests
+    end
+
+    it 'closes the connection after an empty child lookup response' do
+      start_server { ['', false, '503 Service Unavailable'] }
+
+      expect { OpenOrdersCommand.new.run }.to raise_error(
+        OpenOrdersCommand::LookupFailed, 'Could not list child orders. Empty HTTP response body (status 503)'
+      )
+
+      expect(closed_connection).to eq(1)
+      expect(@server.requests.map { |id, method, path| [id, method, path] }).to eq(lookup_requests.take(1))
+    end
+
+    def expect_open_order_requests
+      expect(closed_connection).to eq(1)
+      expect(@server.requests.map { |id, method, path| [id, method, path] }).to eq(lookup_requests)
+      expect_signed_requests
+    end
+  end
+
   it 'sends signed TWAP slices on one TLS connection and closes it on exit' do
     start_server { [acceptance, false] }
     command = OrderByTWAPCommand.new

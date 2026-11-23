@@ -1,7 +1,7 @@
 require 'spec_helper'
 
 describe OpenOrdersCommand do
-  let(:client) { stub_private_client }
+  let(:client) { stub_persistent_client }
 
   it 'lists active child orders and parent strategies with their cancellation IDs' do
     stub_responses(client, child_orders: [{
@@ -53,5 +53,6 @@ describe OpenOrdersCommand do
     stub_responses(client, child_orders: [], parent_orders: { 'status' => -1, 'error_message' => 'Permission denied' })
 
     expect { described_class.new.run }.to raise_error(described_class::LookupFailed, /parent orders.*Permission denied/)
+    expect(client).to have_received(:close).once
   end
 end
