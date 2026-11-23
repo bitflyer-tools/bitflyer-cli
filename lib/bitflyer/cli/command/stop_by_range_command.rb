@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 require 'thor'
+require 'bitflyer/cli/active_stop_lookup'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/parent_order_lookup'
 require 'bitflyer/cli/persistent_http_client'
-require 'bitflyer/cli/stop_order_matcher'
 require 'bitflyer/cli/stop_submission'
 
 class StopByRangeCommand
@@ -43,9 +43,10 @@ class StopByRangeCommand
 
     pending = submission.pending
     description = stop.values_at(:side, :trigger_price, :size).join(' / ')
-    if (order = find_active_stop(stop, submission, pending))
-      return puts "Existing stop order #{description} (#{order.fetch('parent_order_id')})"
-    end
+    order, conflicts = find_active_stop(stop, submission, pending)
+    return puts "Existing stop order #{description} (#{order.fetch('parent_order_id')})" if order
+
+    raise Thor::Error, "Conflicting active stop orders: #{conflicts.join(', ')}" unless conflicts.empty?
 
     return if pending && pending_stop?(submission, pending, description)
     return unless current_stop_matches?(range, stop)
@@ -54,8 +55,7 @@ class StopByRangeCommand
   end
 
   def find_active_stop(stop, submission, pending)
-    matcher = Bitflyer::Cli::StopOrderMatcher.new(http_private_client, stop)
-    parent_order_lookup.find('ACTIVE') { |entry| matcher.matches?(entry) }
+    Bitflyer::Cli::ActiveStopLookup.new(http_private_client, parent_order_lookup).find(stop)
   rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
     message = "Failed to look up active parent orders: #{e.message}."
     submission.raise_unverified(message) if pending == Bitflyer::Cli::StopSubmission::UNVERIFIED

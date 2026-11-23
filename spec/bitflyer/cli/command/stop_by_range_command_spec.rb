@@ -415,7 +415,7 @@ describe StopByRangeCommand, :stop_state do
         end
       end
 
-      it 'fetches only the matching stop detail after 20 same-side stops with a different size' do
+      it 'prefers an exact match after checking 20 same-side stops with a different size' do
         other_stops = (2..21).map do |id|
           parent.merge('id' => id, 'parent_order_id' => "JCO-other-#{id}", 'side' => 'SELL', 'size' => 0.02)
         end
@@ -427,7 +427,7 @@ describe StopByRangeCommand, :stop_state do
           .and_return('order_method' => 'SIMPLE', 'parameters' => [parameters.merge('size' => 0.01)])
 
         expect { run }.to output(/Existing stop order.*JCO-stop/).to_stdout
-        expect(private_client).to have_received(:parent_order).once
+        expect(private_client).to have_received(:parent_order).exactly(21).times
         expect(private_client).to have_received(:parent_order).with(parent_order_id: 'JCO-stop')
         expect(private_client).not_to have_received(:send_parent_order)
       end
@@ -484,9 +484,38 @@ describe StopByRangeCommand, :stop_state do
         expect(private_client).not_to have_received(:send_parent_order)
       end
 
+      it 'reports a full-size stop at a different trigger without submitting another stop' do
+        stub_responses(private_client, parent_orders: [parent])
+        stub_parent_detail
+
+        expect { run(10_000) }.to raise_error(Thor::Error, 'Conflicting active stop orders: JCO-stop')
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
+      it 'reports conflicts on every page, including stops covering only part of the position' do
+        first_page = (3..101).map { |id| { 'id' => id, 'parent_order_type' => 'OCO' } }
+        first_page << parent.merge('id' => 2, 'parent_order_id' => 'JCO-partial', 'side' => 'SELL', 'size' => 0.1)
+        allow(private_client).to receive(:parent_orders).with(hash_including(before: nil)).and_return(first_page)
+        allow(private_client).to receive(:parent_orders).with(hash_including(before: 2)).and_return([parent])
+        stub_parent_detail(parameters: [parameters.merge('size' => 0.1)])
+
+        expect { run }.to raise_error(Thor::Error, 'Conflicting active stop orders: JCO-partial, JCO-stop')
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
+      it 'prefers an exact match after encountering a conflict' do
+        conflict = parent.merge('id' => 2, 'parent_order_id' => 'JCO-conflict')
+        stub_responses(private_client, parent_orders: [conflict, parent])
+        stub_parent_detail
+        allow(private_client).to receive(:parent_order).with(parent_order_id: 'JCO-conflict')
+          .and_return('order_method' => 'SIMPLE', 'parameters' => [parameters.merge('trigger_price' => 994_000)])
+
+        expect { run }.to output("Existing stop order SELL / 995000.0 / 0.2 (JCO-stop)\n").to_stdout
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
       {
-        'product_code' => 'BTC_JPY', 'condition_type' => 'STOP_LIMIT', 'side' => 'BUY',
-        'trigger_price' => 994_000, 'size' => 0.1
+        'product_code' => 'BTC_JPY', 'condition_type' => 'STOP_LIMIT', 'side' => 'BUY'
       }.each do |key, value|
         it "submits a stop when the active order has a different #{key}" do
           stub_responses(private_client, parent_orders: [parent.merge('size' => parameters.fetch('size'))])
