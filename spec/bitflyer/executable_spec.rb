@@ -47,6 +47,34 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     expect(private_client).not_to have_received(:send_parent_order)
   end
 
+  context 'when checking protective stops before a counter trade' do
+    let(:private_client) { stub_persistent_client }
+
+    before do
+      positions = [position(side: 'BUY', price: 1_000_000, size: 0.2)]
+      stub_responses(private_client, positions: positions, send_child_order: nil)
+    end
+
+    it 'reports the conflicting stop ID and exits without submitting an order' do
+      stop = { 'parent_order_id' => 'JCO-stop', 'parent_order_type' => 'STOP', 'side' => 'SELL', 'size' => 0.2 }
+      stub_responses(private_client, parent_orders: [stop])
+
+      expect do
+        expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/Active protective stop.*JCO-stop/).to_stderr
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+
+    it 'reports an unverifiable lookup and exits without submitting an order' do
+      stub_responses(private_client, parent_orders: { 'status' => -200 })
+
+      expect do
+        expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/Could not verify active protective stops.*-200/).to_stderr
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+  end
+
   {
     %w[counter_trade] => "Your net position is already flat.\n",
     %w[stop_by_range --range=5000] => "You don't have any position now.\n"
@@ -549,6 +577,8 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       stub_counter_trade_position(0.2)
       allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true, keep_alive_timeout: 30)
                                        .and_return(transport)
+      allow(transport).to receive(:request).with(an_object_having_attributes(path: %r{\A/v1/me/getparentorders\?}))
+                                           .and_return(order_response(200, []))
       allow(transport).to receive(:request).with(an_object_having_attributes(path: '/v1/me/sendchildorder'))
                                           .and_return(order_response(200, 'child_order_acceptance_id' => acceptance_id))
       expect { run_cli('counter_trade') }.to output("Clear position SELL / 0.2\n").to_stdout
