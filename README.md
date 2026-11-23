@@ -179,6 +179,9 @@ The command rejects invalid intervals before sending any slices.
 unverified, and unattempted. If a transport error, gateway error, or malformed
 response leaves a slice's acceptance unverified, the command stops the schedule
 without retrying that slice and exits with status 1.
+Ctrl+C also stops the schedule and reports the partial totals before exiting
+unsuccessfully. A slice interrupted during submission is unverified. A slice
+still waiting to be submitted is unattempted.
 
 ## Contributing
 
