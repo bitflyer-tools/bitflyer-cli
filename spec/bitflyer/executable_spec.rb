@@ -264,6 +264,15 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
   end
 
   %w[child parent].each do |type|
+    it "reports a read timeout while listing #{type} orders without printing a table" do
+      stub_responses(private_client, child_orders: [], parent_orders: [])
+      allow(private_client).to receive(:"#{type}_orders").and_raise(Net::ReadTimeout)
+
+      expect do
+        expect { run_cli('open_orders') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not list #{type} orders. Net::ReadTimeout\n").to_stderr.and output('').to_stdout
+    end
+
     {
       'a non-object record' => nil,
       'a missing order ID' => {},
