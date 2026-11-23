@@ -3,7 +3,6 @@
 require 'thor'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/order_amount'
-require 'bitflyer/cli/order_rejected'
 
 class OrderByBestCommand
   include HasHTTPClient
@@ -15,15 +14,15 @@ class OrderByBestCommand
 
     price = fetch_ticker_price(side == 'BUY' ? 'best_bid' : 'best_ask')
 
-    response = http_private_client.send_child_order(
-      product_code: 'FX_BTC_JPY',
-      child_order_type: 'LIMIT',
-      side: side,
-      price: price,
-      size: amount
-    )
-
-    Bitflyer::Cli::OrderRejected.check!(response, 'child_order_acceptance_id')
+    submit_single_order('child_order_acceptance_id') do |client|
+      client.send_child_order(
+        product_code: 'FX_BTC_JPY',
+        child_order_type: 'LIMIT',
+        side: side,
+        price: price,
+        size: amount
+      )
+    end
     puts "An order is created #{type} / #{price} / #{amount}"
   end
 
