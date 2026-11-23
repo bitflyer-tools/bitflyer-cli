@@ -492,6 +492,16 @@ describe StopByRangeCommand, :stop_state do
       end
     end
 
+    context 'when the exchange status is a negative fraction' do
+      let(:response) { { 'status' => -1.5 } }
+
+      it 'retains the unverified record and suppresses resubmission' do
+        expect { run }.to raise_error(Bitflyer::Cli::StopSubmission::Unverified, /HTTP 200/)
+        expect { run }.to raise_error(Bitflyer::Cli::StopSubmission::Unverified, /unverified.*awaiting confirmation/)
+        expect(private_client).to have_received(:send_parent_order).once
+      end
+    end
+
     context 'when the stop order is rejected' do
       before do
         stub_responses(private_client, send_parent_order: post_response(400, {
