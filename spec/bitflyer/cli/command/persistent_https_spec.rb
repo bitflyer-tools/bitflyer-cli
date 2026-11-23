@@ -107,6 +107,14 @@ describe 'Persistent exchange HTTPS' do
       expect_stop_requests(lookup_requests)
     end
 
+    it 'closes the connection without posting when a same-side stop has a different trigger' do
+      start_stop_server(second_detail: stop_detail(990_000))
+
+      expect { run_stop }.to raise_error(Thor::Error, 'Conflicting active stop orders: JCO-second')
+
+      expect_stop_requests(lookup_requests)
+    end
+
     it 'closes the connection without submitting when a detail lookup fails' do
       start_stop_server(second_detail: { status: -200 })
 
@@ -127,17 +135,18 @@ describe 'Persistent exchange HTTPS' do
       StopByRangeCommand.new.run(thor_options(range: 5000))
     end
 
-    def stop_detail(trigger_price)
+    def stop_detail(trigger_price, side: 'SELL')
       {
         order_method: 'SIMPLE',
-        parameters: [{ product_code: 'FX_BTC_JPY', condition_type: 'STOP', side: 'SELL', trigger_price: trigger_price,
+        parameters: [{ product_code: 'FX_BTC_JPY', condition_type: 'STOP', side: side, trigger_price: trigger_price,
                        size: 0.1 }]
       }
     end
 
-    def start_stop_server(second_detail: stop_detail(990_000), submission: { parent_order_acceptance_id: 'accepted' })
-      responses = [position_rows, position_rows, parent_orders, stop_detail(980_000), second_detail, position_rows,
-                   submission]
+    def start_stop_server(second_detail: stop_detail(990_000, side: 'BUY'),
+                          submission: { parent_order_acceptance_id: 'accepted' })
+      first_detail = stop_detail(980_000, side: 'BUY')
+      responses = [position_rows, position_rows, parent_orders, first_detail, second_detail, position_rows, submission]
       start_server { |_path, number| [responses.fetch(number - 1, submission), false] }
     end
 

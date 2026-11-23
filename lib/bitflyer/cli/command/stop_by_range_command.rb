@@ -45,9 +45,10 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
 
     pending = submission.pending
     description = stop.values_at(:side, :trigger_price, :size).join(' / ')
-    if (order = find_active_stop(stop, submission, pending))
-      return puts "Existing stop order #{description} (#{order.fetch('parent_order_id')})"
-    end
+    order, conflicts = find_active_stop(stop, submission, pending)
+    return puts "Existing stop order #{description} (#{order.fetch('parent_order_id')})" if order
+
+    raise Thor::Error, "Conflicting active stop orders: #{conflicts.join(', ')}" unless conflicts.empty?
 
     return if pending && pending_stop?(submission, pending, description)
     return unless current_stop_matches?(range, stop)
@@ -56,12 +57,25 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
   end
 
   def find_active_stop(stop, submission, pending)
-    find_parent_order('ACTIVE') { |entry| matching_stop?(entry, stop) }
+    scan_active_stops(stop)
   rescue Timeout::Error, SocketError, SystemCallError, IOError,
          OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError => e
     message = "Failed to look up active parent orders: #{e.message}."
     submission.raise_unverified(message) if pending == Bitflyer::Cli::StopSubmission::UNVERIFIED
     raise LookupFailed, message
+  end
+
+  def scan_active_stops(stop)
+    conflicts = []
+    exact = find_parent_order('ACTIVE') do |entry|
+      parameter = standalone_stop(entry, stop.fetch(:side))
+      next false unless parameter && same_stop_scope?(parameter, stop)
+      next true if stop.all? { |key, value| parameter[key.to_s] == value }
+
+      conflicts << entry.fetch('parent_order_id')
+      false
+    end
+    [exact, conflicts]
   end
 
   def pending_stop?(submission, pending, description)
@@ -152,14 +166,17 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
     raise LookupFailed, "Failed to look up #{state.downcase} parent orders: #{orders.inspect}"
   end
 
-  def matching_stop?(order, stop)
-    return false unless order['parent_order_type'] == 'STOP'
-    return false if opposite_side?(order['side'], stop.fetch(:side))
+  def standalone_stop(order, side)
+    return unless order['parent_order_type'] == 'STOP'
+    return if opposite_side?(order['side'], side)
 
     detail = parent_order_detail(order.fetch('parent_order_id'))
     parameters = detail.fetch('parameters')
-    detail['order_method'] == 'SIMPLE' && parameters.one? &&
-      stop.all? { |key, value| parameters.first[key.to_s] == value }
+    parameters.first if detail['order_method'] == 'SIMPLE' && parameters.one?
+  end
+
+  def same_stop_scope?(parameter, stop)
+    %i[product_code condition_type side].all? { |key| parameter[key.to_s] == stop.fetch(key) }
   end
 
   def opposite_side?(side, expected_side)

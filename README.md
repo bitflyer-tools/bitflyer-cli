@@ -77,7 +77,9 @@ time between the first and last slices. It runs without network access or waits.
 
 `stop_by_range` checks active parent orders before submitting. If it finds a
 standalone stop for the same market, side, trigger price, and size, it prints
-the existing stop and its parent order ID.
+the existing stop and its parent order ID. Otherwise, if any active standalone
+stop already covers the same market and closing side, the CLI reports the
+conflicting parent order IDs and exits with status 1 without submitting a stop.
 
 Runs on the same machine and OS account coordinate when they use the same API
 key and stop parameters. The CLI tracks accepted stops in a local submission
