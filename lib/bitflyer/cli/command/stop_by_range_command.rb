@@ -79,9 +79,26 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
 
   def terminal_state(pending, record_path)
     request_page = history_page_reader(pending, record_path)
-    TERMINAL_STATES.find do |state|
-      find_parent_order(state, request_page: request_page) { |order| order[ACCEPTANCE_ID] == pending }
+    TERMINAL_STATES.each do |state|
+      order = find_parent_order(state, request_page: request_page) { |entry| entry[ACCEPTANCE_ID] == pending }
+      next unless order
+
+      confirm_zero_fill!(order, state, pending, record_path) unless state == 'COMPLETED'
+      return state
     end
+    nil
+  end
+
+  def confirm_zero_fill!(order, state, pending, record_path)
+    executed_size = BigDecimal(order['executed_size'].to_s, exception: false)
+    return if executed_size&.zero?
+
+    detail = if executed_size&.finite? && executed_size.positive?
+               "executed #{executed_size.to_s('F')} BTC. Wait for the position to reflect the fill before retrying."
+             else
+               'has an unconfirmed executed size. Check the order in bitFlyer before retrying.'
+             end
+    raise Thor::Error, "Previous stop order (#{pending}, #{state}) #{detail} Submission record: #{record_path}"
   end
 
   def history_page_reader(pending, record_path)

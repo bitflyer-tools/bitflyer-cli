@@ -105,6 +105,11 @@ across terminal parent-order states. If the limit prevents confirmation, the
 CLI exits with status 1, reports the record path, and keeps the record to
 prevent resubmission.
 
+For a canceled, expired, or rejected stop, the CLI requires a confirmed zero
+executed size before replacing it with the same parameters. If the stop filled
+in part or its executed size is unknown, the CLI keeps the record and reports
+its path. Confirm the fill and the updated position in bitFlyer before retrying.
+
 ### Offset a position
 
 `bitflyer counter_trade` coordinates runs for each product on the same machine
