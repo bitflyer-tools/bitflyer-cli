@@ -166,6 +166,7 @@ describe SummaryCommand do
     expect(private_client).to receive(:collateral).ordered.and_return('collateral' => 60_000)
 
     poller = nil
+    allow(command).to receive(:start_feed).and_wrap_original { |start| start.call.tap(&:join) }
     allow(Thread).to receive(:new) do |&poll|
       poller = Fiber.new(&poll)
       poller.resume
@@ -486,6 +487,7 @@ describe SummaryCommand do
   end
 
   def run_iterations(command, *changes)
+    allow(command).to receive(:start_feed).and_wrap_original { |start| start.call.tap(&:join) }
     allow(Thread).to receive(:new)
     allow(command).to receive(:sleep).with(0.1) do
       raise Interrupt if changes.empty?

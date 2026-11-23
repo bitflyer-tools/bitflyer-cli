@@ -34,7 +34,7 @@ class CancelOrderCommand
   end
 
   def failure_message(result)
-    return "#{UNVERIFIED} (HTTP #{result.http_code})." if result.server_error?
+    return "#{UNVERIFIED} (HTTP #{result.http_code})." if result.unverified_http_status?
     return "#{UNVERIFIED}." unless result.outcome == :rejected
     return "Cancellation request rejected. #{result.message}" unless result.message.empty?
 
