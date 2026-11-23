@@ -89,4 +89,12 @@ describe OrderByBestCommand do
       expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected::Unverified)
     end
   end
+
+  context 'when the acceptance ID is a non-breaking space' do
+    let(:response) { { 'child_order_acceptance_id' => "\u00A0" } }
+
+    it 'reports unverified acceptance' do
+      expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected::Unverified, /verify order acceptance/)
+    end
+  end
 end

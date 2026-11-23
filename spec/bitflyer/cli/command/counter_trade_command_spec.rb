@@ -151,6 +151,28 @@ describe CounterTradeCommand, :counter_trade_state do
   context 'when an offset might have been accepted' do
     let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.2)] }
 
+    context 'when the acceptance ID is a non-breaking space' do
+      let(:accepted) { { 'child_order_acceptance_id' => "\u00A0" } }
+
+      it 'retains an unverified record and prevents resubmission' do
+        expect { described_class.new.run }.to raise_error(Thor::Error, /verify counter trade acceptance/) do |error|
+          expect(JSON.parse(File.read(error.message.split.last))).to include('acceptance_id' => nil)
+        end
+        expect { described_class.new.run }.to raise_error(Thor::Error, /acceptance is unverified/)
+        expect(private_client).to have_received(:send_child_order).once
+      end
+    end
+
+    it 'blocks reconciliation and resubmission with a stored non-breaking space acceptance ID' do
+      submission = Bitflyer::Cli::CounterTradeSubmission.new('FX_BTC_JPY', ENV.fetch('BITFLYER_API_KEY', nil))
+      submission.synchronize { submission.record(BigDecimal('0.2'), "\u00A0") }
+
+      expect(private_client).not_to receive(:child_order_by_acceptance_id)
+      expect { described_class.new.run }.to raise_error(Thor::Error, /acceptance is unverified/)
+      expect(private_client).not_to have_received(:send_child_order)
+      expect(submission.pending).to include('acceptance_id' => "\u00A0")
+    end
+
     it 'retains an unverified record after a timeout' do
       allow(private_client).to receive(:send_child_order).and_raise(Net::ReadTimeout)
 

@@ -6,11 +6,11 @@ module Bitflyer
       class Unverified < StandardError; end
 
       def self.accepted?(status, acceptance_id, body)
-        status.between?(200, 299) && acceptance_id?(acceptance_id) && !error_fields?(body)
+        status.between?(200, 299) && valid_acceptance?(acceptance_id, body)
       end
 
       def self.acceptance_id?(id)
-        id.is_a?(String) && !id.strip.empty?
+        id.is_a?(String) && !id.strip.empty? && id.match?(/[^[:space:]]/)
       end
 
       def self.negative_status?(body)
@@ -31,7 +31,7 @@ module Bitflyer
       end
 
       def self.valid_acceptance?(acceptance_id, body)
-        acceptance_id?(acceptance_id) && acceptance_id.match?(/[^[:space:]]/) && !error_fields?(body)
+        acceptance_id?(acceptance_id) && !error_fields?(body)
       end
       private_class_method :valid_acceptance?
 
