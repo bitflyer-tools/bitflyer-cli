@@ -10,6 +10,15 @@ bitflyer-cli is a command-line tool for the BTC-CFD/JPY market on
 [bitFlyer Crypto CFD](https://lightning.bitflyer.com/docs?lang=en#api-documentation).
 This market uses `FX_BTC_JPY` as its API product code.
 
+## Features
+
+- Monitor the live execution price, net position, and estimated account balance.
+- Review active orders and recent fills, and request order cancellations.
+- Place limit orders at the best price on the order book, schedule TWAP slices,
+  and submit range-based stop and IFDOCO orders.
+- Preview TWAP and IFDOCO orders before submitting them.
+- Offset net exposure with a market order.
+
 ## Installation
 
 Requires Ruby 3.3 or later.
