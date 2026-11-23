@@ -134,4 +134,12 @@ describe IFDOCOByRangeCommand do
       expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected, /Order rejected:.*-200/)
     end
   end
+
+  context 'when the acceptance ID is a non-breaking space' do
+    let(:response) { { 'parent_order_acceptance_id' => "\u00A0" } }
+
+    it 'reports unverified acceptance' do
+      expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected::Unverified, /verify order acceptance/)
+    end
+  end
 end

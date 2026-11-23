@@ -120,6 +120,16 @@ describe OrderByTWAPCommand do
     end
   end
 
+  context 'when the acceptance ID is a non-breaking space' do
+    let(:response) { { 'child_order_acceptance_id' => "\u00A0" } }
+
+    it 'reports the first slice as unverified and stops the schedule' do
+      expect { run }.to output(/0 accepted, 0 rejected, 1 unverified, 2 unattempted/).to_stdout
+      expect(private_client).to have_received(:send_child_order).once
+      expect(command).not_to have_received(:sleep)
+    end
+  end
+
   context 'when an order is rejected' do
     let(:response) { { 'status' => -200 } }
 
