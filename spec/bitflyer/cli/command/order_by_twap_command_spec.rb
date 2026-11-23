@@ -60,6 +60,33 @@ describe OrderByTWAPCommand do
     expect(command).not_to have_received(:sleep)
   end
 
+  it 'reports the remaining slices as unattempted when a wait is interrupted' do
+    allow(command).to receive(:sleep).and_raise(Interrupt)
+
+    expect do
+      expect { run }.to raise_error(Interrupt)
+    end.to output(/1 accepted, 0 rejected, 0 unverified, 2 unattempted\./).to_stdout
+
+    expect(private_client).to have_received(:send_child_order).once
+    expect(private_client).to have_received(:close).once
+  end
+
+  it 'reports the interrupted submission as unverified and stops the schedule' do
+    allow(private_client).to receive(:send_child_order) do
+      raise Interrupt unless submission_times.empty?
+
+      submission_times << 0
+      Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, response)
+    end
+
+    expect do
+      expect { run }.to raise_error(Interrupt)
+    end.to output(/1 accepted, 0 rejected, 1 unverified, 1 unattempted\./).to_stdout
+
+    expect(private_client).to have_received(:send_child_order).twice
+    expect(private_client).to have_received(:close).once
+  end
+
   context 'when a request misses several submission deadlines' do
     let(:request_durations) { [25, 2, 2] }
 
@@ -88,6 +115,16 @@ describe OrderByTWAPCommand do
 
     it 'prints the response without waiting' do
       expect { run }.to output(/#{response.fetch('child_order_acceptance_id')}/).to_stdout
+      expect(private_client).to have_received(:send_child_order).once
+      expect(command).not_to have_received(:sleep)
+    end
+  end
+
+  context 'when the acceptance ID is a non-breaking space' do
+    let(:response) { { 'child_order_acceptance_id' => "\u00A0" } }
+
+    it 'reports the first slice as unverified and stops the schedule' do
+      expect { run }.to output(/0 accepted, 0 rejected, 1 unverified, 2 unattempted/).to_stdout
       expect(private_client).to have_received(:send_child_order).once
       expect(command).not_to have_received(:sleep)
     end

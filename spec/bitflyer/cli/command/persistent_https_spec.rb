@@ -3,6 +3,7 @@ require 'spec_helper'
 describe 'Persistent exchange HTTPS' do
   let(:order_path) { '/v1/me/sendchildorder' }
   let(:positions_path) { '/v1/me/getpositions?product_code=FX_BTC_JPY' }
+  let(:active_parent_orders_path) { '/v1/me/getparentorders?product_code=FX_BTC_JPY&count=100&parent_order_state=ACTIVE' }
   let(:collateral_path) { '/v1/me/getcollateral' }
   let(:acceptance) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' } }
 
@@ -83,7 +84,7 @@ describe 'Persistent exchange HTTPS' do
       [
         [1, 'GET', positions_path],
         [1, 'GET', positions_path],
-        [1, 'GET', '/v1/me/getparentorders?product_code=FX_BTC_JPY&count=100&parent_order_state=ACTIVE'],
+        [1, 'GET', active_parent_orders_path],
         [1, 'GET', '/v1/me/getparentorder?parent_order_id=JCO-first'],
         [1, 'GET', '/v1/me/getparentorder?parent_order_id=JCO-second']
       ]
@@ -155,12 +156,15 @@ describe 'Persistent exchange HTTPS' do
     end
     let(:submission) { Bitflyer::Cli::CounterTradeSubmission.new('FX_BTC_JPY', 'key') }
 
-    it 'reads the position and submits the offset on one TLS connection' do
-      start_server { |path| [path == positions_path ? position_rows : acceptance, false] }
+    it 'reads the position, checks protective stops, and submits the offset on one TLS connection' do
+      responses = { positions_path => position_rows, active_parent_orders_path => [], order_path => acceptance }
+      start_server { |path| [responses.fetch(path), false] }
 
       expect { CounterTradeCommand.new.run }.to output("Clear position SELL / 0.1\n").to_stdout
 
-      expect_counter_trade_requests([[1, 'GET', positions_path], [1, 'POST', order_path]])
+      expect_counter_trade_requests([
+        [1, 'GET', positions_path], [1, 'GET', active_parent_orders_path], [1, 'POST', order_path]
+      ])
     end
 
     {
@@ -262,6 +266,7 @@ describe 'Persistent exchange HTTPS' do
 
     command = SummaryCommand.new
     poller = nil
+    allow(command).to receive(:start_feed).and_wrap_original { |start| start.call.tap(&:join) }
     allow(Thread).to receive(:new) do |&poll|
       poller = Fiber.new(&poll)
       poller.resume

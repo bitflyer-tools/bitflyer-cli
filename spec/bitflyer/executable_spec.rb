@@ -47,6 +47,34 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     expect(private_client).not_to have_received(:send_parent_order)
   end
 
+  context 'when checking protective stops before a counter trade' do
+    let(:private_client) { stub_persistent_client }
+
+    before do
+      positions = [position(side: 'BUY', price: 1_000_000, size: 0.2)]
+      stub_responses(private_client, positions: positions, send_child_order: nil)
+    end
+
+    it 'reports the conflicting stop ID and exits without submitting an order' do
+      stop = { 'parent_order_id' => 'JCO-stop', 'parent_order_type' => 'STOP', 'side' => 'SELL', 'size' => 0.2 }
+      stub_responses(private_client, parent_orders: [stop])
+
+      expect do
+        expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/Active protective stop.*JCO-stop/).to_stderr
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+
+    it 'reports an unverifiable lookup and exits without submitting an order' do
+      stub_responses(private_client, parent_orders: { 'status' => -200 })
+
+      expect do
+        expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/Could not verify active protective stops.*-200/).to_stderr
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+  end
+
   {
     %w[counter_trade] => "Your net position is already flat.\n",
     %w[stop_by_range --range=5000] => "You don't have any position now.\n"
@@ -125,16 +153,6 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     end.to output("Could not verify cancel-all acceptance from bitFlyer (HTTP 200).\n").to_stderr
       .and output('').to_stdout
     expect(transport).to have_received(:request).once
-  end
-
-  it 'prints a limit order rejection to stderr and exits unsuccessfully' do
-    stub_responses(stub_public_client, ticker: { 'best_bid' => 1_000_000 })
-    stub_responses(private_client, send_child_order: { 'status' => -200, 'error_message' => 'Order rejected' })
-
-    expect do
-      expect { run_cli('order_by_best', '--amount=0.01', '--type=buy') }
-        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-    end.to output("Order rejected\n").to_stderr
   end
 
   it 'completes normally when the cancellation is accepted' do
@@ -264,6 +282,15 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
   end
 
   %w[child parent].each do |type|
+    it "reports a read timeout while listing #{type} orders without printing a table" do
+      stub_responses(private_client, child_orders: [], parent_orders: [])
+      allow(private_client).to receive(:"#{type}_orders").and_raise(Net::ReadTimeout)
+
+      expect do
+        expect { run_cli('open_orders') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not list #{type} orders. Net::ReadTimeout\n").to_stderr.and output('').to_stdout
+    end
+
     {
       'a non-object record' => nil,
       'a missing order ID' => {},
@@ -382,6 +409,8 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     ['400', '{"status":-200.0,"error_message":"unexpected reply"}',
      'Could not verify cancel-all acceptance from bitFlyer (HTTP 400).',
      'Could not verify cancellation acceptance from bitFlyer.'],
+    ['408', '{"status":-200}', 'Could not verify cancel-all acceptance from bitFlyer (HTTP 408).',
+     'Could not verify cancellation acceptance from bitFlyer (HTTP 408).'],
     ['503', '{"status":-200,"error_message":"Service unavailable."}',
      'Could not verify cancel-all acceptance from bitFlyer (HTTP 503).',
      'Could not verify cancellation acceptance from bitFlyer (HTTP 503).']
@@ -526,6 +555,20 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     end.to output("Could not verify cancellation acceptance from bitFlyer.\n").to_stderr
   end
 
+  it 'preserves a malformed counter trade record and exits before contacting bitFlyer' do
+    stub_credentials
+    path = File.join(Bitflyer::Cli::CounterTradeSubmission.state_directory, 'FX_BTC_JPY.json')
+    malformed_record = '{"credential":'
+    File.write(path, malformed_record)
+    expect(Net::HTTP).not_to receive(:start)
+
+    expect do
+      expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output(/Could not read the previous counter trade record\..*Record: #{Regexp.escape(path)}\n/m)
+      .to_stderr.and output('').to_stdout
+    expect(File.read(path)).to eq(malformed_record)
+  end
+
   context 'when reconciling a counter trade through the CLI' do
     let(:transport) { instance_double(Net::HTTP, started?: false) }
     let(:acceptance_id) { 'JRF20180101-000000-000001' }
@@ -535,6 +578,8 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       stub_counter_trade_position(0.2)
       allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true, keep_alive_timeout: 30)
                                        .and_return(transport)
+      allow(transport).to receive(:request).with(an_object_having_attributes(path: %r{\A/v1/me/getparentorders\?}))
+                                           .and_return(order_response(200, []))
       allow(transport).to receive(:request).with(an_object_having_attributes(path: '/v1/me/sendchildorder'))
                                           .and_return(order_response(200, 'child_order_acceptance_id' => acceptance_id))
       expect { run_cli('counter_trade') }.to output("Clear position SELL / 0.2\n").to_stdout
@@ -712,17 +757,76 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
   end
 
   {
+    %w[order_by_best --amount=0.01 --type=buy] => ['child', /An order is created buy/],
+    %w[ifdoco_by_range --amount=0.01 --type=buy --range=10000 --percentage=60] => ['parent', /Send market order BUY/]
+  }.each do |args, (order_type, confirmation)|
+    context "when placing a single order with #{args.first}" do
+      let(:transport) { instance_double(Net::HTTP, started?: true, finish: nil) }
+
+      before do
+        stub_credentials
+        public_client = instance_double(Bitflyer::HTTP::Public::Client, ticker: { 'best_bid' => 1_000_000, 'ltp' => 1_000_000 })
+        allow(Bitflyer).to receive(:http_public_client).and_return(public_client)
+        allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true).and_yield(transport)
+        allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true, keep_alive_timeout: 30)
+                                         .and_return(transport)
+      end
+
+      def stub_placement_response(status, body)
+        response = instance_double(Net::HTTPResponse, code: status, body: body && JSON.generate(body))
+        allow(transport).to receive(:request).with(instance_of(Net::HTTP::Post)).and_return(response)
+      end
+
+      it 'reports HTTP 503 with an acceptance ID as unverified without retrying' do
+        stub_placement_response('503', "#{order_type}_order_acceptance_id" => 'accepted')
+
+        expect do
+          expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Could not verify order acceptance (HTTP 503).\n").to_stderr.and output('').to_stdout
+        expect(transport).to have_received(:request).once do |request|
+          expect(request.path).to eq("/v1/me/send#{order_type}order")
+        end
+        expect(transport).to have_received(:finish).once
+      end
+
+      it 'reports a bodyless HTTP 503 as unverified without retrying' do
+        stub_placement_response('503', nil)
+
+        expect do
+          expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output(/Could not verify order acceptance: .*status 503/).to_stderr.and output('').to_stdout
+        expect(transport).to have_received(:request).once
+      end
+
+      it 'reports an explicit HTTP 400 exchange rejection' do
+        stub_placement_response('400', 'status' => -205, 'error_message' => 'Insufficient margin')
+
+        expect do
+          expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Insufficient margin\n").to_stderr.and output('').to_stdout
+        expect(transport).to have_received(:request).once
+      end
+
+      it 'confirms placement for HTTP 201 with a valid acceptance ID' do
+        stub_placement_response('201', "#{order_type}_order_acceptance_id" => 'accepted')
+
+        expect { run_cli(*args) }.to output('').to_stderr.and output(confirmation).to_stdout
+        expect(transport).to have_received(:request).once
+        expect(transport).to have_received(:finish).once
+      end
+    end
+  end
+
+  {
     %w[counter_trade] => 'child',
     %w[order_by_best --amount=0.01 --type=buy] => 'child',
     %w[ifdoco_by_range --amount=0.01 --type=buy --range=10000 --percentage=60] => 'parent'
   }.each do |args, order_type|
     context "when running #{args.first}" do
       let(:order_method) { :"send_#{order_type}_order" }
-      let(:private_client) { args.first == 'counter_trade' ? stub_persistent_client : stub_private_client }
+      let(:private_client) { stub_persistent_client }
 
-      def order_response(command, body)
-        return body unless command == 'counter_trade'
-
+      def order_response(body)
         Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, body)
       end
 
@@ -733,7 +837,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       end
 
       it 'prints the exchange rejection to stderr and exits unsuccessfully' do
-        stub_responses(private_client, order_method => order_response(args.first, { 'status' => -205, 'error_message' => 'Insufficient margin' }))
+        stub_responses(private_client, order_method => order_response('status' => -205, 'error_message' => 'Insufficient margin'))
 
         expect do
           expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -741,7 +845,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       end
 
       it 'completes normally when the order is accepted' do
-        stub_responses(private_client, order_method => order_response(args.first, { "#{order_type}_order_acceptance_id" => 'accepted' }))
+        stub_responses(private_client, order_method => order_response("#{order_type}_order_acceptance_id" => 'accepted'))
 
         expect { run_cli(*args) }.to output('').to_stderr.and output(/.+/).to_stdout
         expect(private_client).to have_received(order_method)
@@ -750,7 +854,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       unless args.first == 'counter_trade'
         ['', " \t\n", "\0", "\u3000", 123, true, false, nil].each do |acceptance_id|
           it "reports acceptance as unverified for ID #{acceptance_id.inspect} without retrying" do
-            stub_responses(private_client, order_method => { "#{order_type}_order_acceptance_id" => acceptance_id })
+            stub_responses(private_client, order_method => order_response("#{order_type}_order_acceptance_id" => acceptance_id))
 
             expect do
               expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
