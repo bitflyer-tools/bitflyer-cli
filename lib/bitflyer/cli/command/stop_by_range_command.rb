@@ -153,8 +153,7 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
   end
 
   def matching_stop?(order, stop)
-    return false unless order['parent_order_type'] == 'STOP'
-    return false if opposite_side?(order['side'], stop.fetch(:side))
+    return false unless stop_candidate?(order, stop)
 
     detail = parent_order_detail(order.fetch('parent_order_id'))
     parameters = detail.fetch('parameters')
@@ -162,8 +161,22 @@ class StopByRangeCommand # rubocop:disable Metrics/ClassLength
       stop.all? { |key, value| parameters.first[key.to_s] == value }
   end
 
+  def stop_candidate?(order, stop)
+    order['parent_order_type'] == 'STOP' &&
+      !opposite_side?(order['side'], stop.fetch(:side)) &&
+      !different_size?(order['size'], stop.fetch(:size))
+  end
+
   def opposite_side?(side, expected_side)
     %w[BUY SELL].include?(side) && side != expected_side
+  end
+
+  def different_size?(size, expected_size)
+    raw = size.to_s
+    return false unless Position::DECIMAL.match?(raw)
+
+    listed_size = Float(raw, exception: false)
+    listed_size&.finite? && listed_size.positive? && listed_size != expected_size
   end
 
   def parent_order_detail(order_id)
