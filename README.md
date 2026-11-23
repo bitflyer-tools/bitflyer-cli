@@ -112,9 +112,9 @@ stop's completion in bitFlyer, then remove the completed record at the path
 shown by the CLI while no `stop_by_range` commands are running.
 
 When reconciling a recorded acceptance ID, the CLI makes up to 10 requests
-across terminal parent-order states. If the limit prevents confirmation, the
-CLI exits with status 1, reports the record path, and keeps the record to
-prevent resubmission.
+across terminal parent-order states. If a communication error interrupts the
+lookup or the limit prevents confirmation, the CLI exits with status 1,
+reports the record path, and keeps the record to prevent resubmission.
 
 ### Offset a position
 
@@ -182,6 +182,11 @@ An empty page prints `No executions found.` A failed lookup prints an error
 to stderr and exits unsuccessfully.
 
 ## Troubleshooting
+
+Both `stop_by_range` and `counter_trade` require an account-owned submission
+directory with group and other write permissions disabled. Use a state path
+without symbolic links or `..` components and with ancestors protected from
+modification by other OS users.
 
 For help with credentials, missing prices, and order status, see
 [Troubleshooting](docs/troubleshooting.md).

@@ -19,7 +19,7 @@ RSpec.configure do |config|
 
   config.around(:each, :stop_state) do |example|
     Dir.mktmpdir do |directory|
-      @stop_state_directory = directory
+      @stop_state_directory = File.realpath(directory)
       example.run
     end
   end
@@ -30,7 +30,7 @@ RSpec.configure do |config|
 
   config.around(:each, :counter_trade_state) do |example|
     Dir.mktmpdir do |directory|
-      @counter_trade_state_directory = directory
+      @counter_trade_state_directory = File.realpath(directory)
       example.run
     end
   end

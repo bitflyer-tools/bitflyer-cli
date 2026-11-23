@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 require 'digest'
-require 'fileutils'
 require 'json'
 require 'bitflyer/cli/durable_file'
 require 'bitflyer/cli/order_rejected'
+require 'bitflyer/cli/submission_state_directory'
 
 module Bitflyer
   module Cli
@@ -33,7 +33,7 @@ module Bitflyer
       end
 
       def synchronize
-        FileUtils.mkdir_p(File.dirname(@path), mode: 0o700)
+        SubmissionStateDirectory.prepare(File.dirname(@path))
         File.open(@lock_path, File::RDWR | File::CREAT | File::NOFOLLOW, 0o600) do |lock|
           raise IOError, "Could not lock stop submission: #{@path}" unless lock.flock(File::LOCK_EX)
 
@@ -42,7 +42,7 @@ module Bitflyer
       end
 
       def pending
-        value = File.read(@path)
+        value = File.read(@path, mode: File::RDONLY | File::NOFOLLOW)
         value.strip.empty? ? UNVERIFIED : value
       rescue Errno::ENOENT
         nil
@@ -84,25 +84,19 @@ module Bitflyer
       end
 
       def record_response(response, acceptance_key)
-        status = response.status
-        body = response.body
-        acceptance_id = body[acceptance_key] if body.is_a?(Hash)
-        if acceptance_id.nil? && definite_rejection?(status, body)
+        case OrderRejected.classify(response, acceptance_key)
+        when :accepted
+          record(response.body.fetch(acceptance_key))
+        when :rejected
           clear
-          OrderRejected.check!(body, acceptance_key)
+          OrderRejected.raise_rejection!(response.body)
+        else
+          raise_unverified("Could not verify stop order acceptance (HTTP #{response.status}).")
         end
-        return record(acceptance_id) if OrderRejected.accepted?(status, acceptance_id, body)
-
-        raise_unverified("Could not verify stop order acceptance (HTTP #{status}).")
       end
 
       def clear
         File.unlink(@path)
-      end
-
-      def definite_rejection?(status, body)
-        verifiable = status.between?(200, 299) || (status.between?(400, 499) && status != 408)
-        verifiable && body.is_a?(Hash) && body['status'].is_a?(Integer) && body['status'].negative?
       end
     end
   end

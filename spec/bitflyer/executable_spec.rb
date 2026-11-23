@@ -265,10 +265,10 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     expect(transport).to have_received(:request).once
   end
 
-  it 'exits before constructing an SDK private client when credentials are missing' do
+  it 'exits before constructing the persistent private client when credentials are missing' do
     stub_credentials
     allow(ENV).to receive(:fetch).with('BITFLYER_API_KEY', nil).and_return(nil)
-    expect(Bitflyer).not_to receive(:http_private_client)
+    expect(Bitflyer::Cli::PersistentHTTPClient).not_to receive(:new)
 
     expect do
       expect { run_cli('open_orders') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -276,15 +276,16 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
   end
 
   it 'routes open_orders through the CLI' do
-    stub_responses(private_client, child_orders: [], parent_orders: [])
+    stub_responses(stub_persistent_client, child_orders: [], parent_orders: [])
 
     expect { run_cli('open_orders') }.to output("Child orders\nNone.\nParent strategies\nNone.\n").to_stdout
   end
 
   %w[child parent].each do |type|
     it "reports a read timeout while listing #{type} orders without printing a table" do
-      stub_responses(private_client, child_orders: [], parent_orders: [])
-      allow(private_client).to receive(:"#{type}_orders").and_raise(Net::ReadTimeout)
+      client = stub_persistent_client
+      stub_responses(client, child_orders: [], parent_orders: [])
+      allow(client).to receive(:"#{type}_orders").and_raise(Net::ReadTimeout)
 
       expect do
         expect { run_cli('open_orders') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -299,7 +300,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     }.each do |description, record|
       it "rejects #{description} in the #{type} orders response without printing rows" do
         responses = { child_orders: [{ 'child_order_id' => 'JOR-order' }], parent_orders: [] }
-        stub_responses(private_client, **responses.merge(:"#{type}_orders" => [record]))
+        stub_responses(stub_persistent_client, **responses.merge(:"#{type}_orders" => [record]))
 
         expect do
           expect { run_cli('open_orders') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -328,7 +329,8 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
   { 'open_orders' => [:child_orders, 'child orders'], 'executions' => [:executions, 'executions'] }.each do
     |command, (lookup, label)|
     it "escapes terminal controls in the #{command} diagnostic on stderr" do
-      stub_responses(private_client, lookup => { 'status' => -1, 'error_message' => "Denied\r\n\e[2J" })
+      client = command == 'open_orders' ? stub_persistent_client : private_client
+      stub_responses(client, lookup => { 'status' => -1, 'error_message' => "Denied\r\n\e[2J" })
 
       expect do
         expect { run_cli(command) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -693,6 +695,23 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
         expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
       end.to output(diagnostic).to_stderr.and output('').to_stdout
       expect(File.read(submission.path)).to eq('unverified')
+      expect(transport).not_to have_received(:request).with(instance_of(Net::HTTP::Post))
+    end
+
+    it 'retains the pending record when terminal history returns a bodyless 503' do
+      stop = { product_code: 'FX_BTC_JPY', condition_type: 'STOP', side: 'SELL', trigger_price: 995_000.0, size: 0.1 }
+      submission = Bitflyer::Cli::StopSubmission.new('key', stop)
+      File.write(submission.path, 'accepted')
+      unavailable = instance_double(Net::HTTPServiceUnavailable, code: '503', body: nil)
+      canceled_history = an_object_having_attributes(path: %r{\A/v1/me/getparentorders\?.*parent_order_state=CANCELED})
+      allow(transport).to receive(:request).with(canceled_history).and_return(unavailable)
+      diagnostic = "Failed to look up terminal parent orders: Empty HTTP response body (status 503). " \
+                   "Submission record: #{submission.path}\n"
+
+      expect do
+        expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(diagnostic).to_stderr.and output('').to_stdout
+      expect(File.read(submission.path)).to eq('accepted')
       expect(transport).not_to have_received(:request).with(instance_of(Net::HTTP::Post))
     end
 

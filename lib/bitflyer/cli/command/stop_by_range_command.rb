@@ -79,12 +79,13 @@ class StopByRangeCommand
   end
 
   def terminal_state(pending, record_path)
-    parent_order_lookup.find_state(TERMINAL_STATES, max_requests: HISTORY_REQUEST_LIMIT) do |order|
-      order[ACCEPTANCE_ID] == pending
-    end
+    matches_pending = ->(order) { order[ACCEPTANCE_ID] == pending }
+    parent_order_lookup.find_state(TERMINAL_STATES, max_requests: HISTORY_REQUEST_LIMIT, &matches_pending)
   rescue Bitflyer::Cli::ParentOrderLookup::RequestLimitExceeded
     raise Thor::Error, "Stop order #{pending} still requires reconciliation after " \
                        "#{HISTORY_REQUEST_LIMIT} history requests. Submission record: #{record_path}"
+  rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
+    raise LookupFailed, "Failed to look up terminal parent orders: #{e.message}. Submission record: #{record_path}"
   end
 
   def current_stop(range)
