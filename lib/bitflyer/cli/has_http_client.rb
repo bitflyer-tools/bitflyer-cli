@@ -3,6 +3,8 @@
 require 'bitflyer'
 require 'bitflyer/cli/authorization'
 require 'bitflyer/cli/model/position'
+require 'bitflyer/cli/order_rejected'
+require 'bitflyer/cli/persistent_http_client'
 
 module HasHTTPClient
   include Authorization
@@ -27,6 +29,16 @@ module HasHTTPClient
 
   def close_persistent_http_client
     @persistent_http_client&.close
+  end
+
+  def submit_single_order(acceptance_key)
+    response = yield persistent_http_client
+    Bitflyer::Cli::OrderRejected.check_submission!(response, acceptance_key)
+  rescue Timeout::Error, SocketError, SystemCallError, IOError,
+         OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError => e
+    raise Bitflyer::Cli::OrderRejected::Unverified, "Could not verify order acceptance: #{e.message}"
+  ensure
+    close_persistent_http_client
   end
 
   def fetch_ticker_price(field)

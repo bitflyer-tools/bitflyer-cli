@@ -2,12 +2,13 @@ require 'spec_helper'
 
 describe IFDOCOByRangeCommand do
   let!(:public_client) { stub_public_client }
-  let!(:private_client) { stub_private_client }
+  let!(:private_client) { stub_persistent_client }
   let(:response) { { 'parent_order_acceptance_id' => 'JRF20180101-000000-000001' } }
 
   before do
     stub_responses(public_client, ticker: { 'ltp' => 1_000_000 })
-    stub_responses(private_client, send_parent_order: response)
+    submission = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, response)
+    stub_responses(private_client, send_parent_order: submission)
   end
 
   def run(type, **overrides)
@@ -131,6 +132,14 @@ describe IFDOCOByRangeCommand do
 
     it 'raises with the exchange rejection' do
       expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected, /Order rejected:.*-200/)
+    end
+  end
+
+  context 'when the acceptance ID is a non-breaking space' do
+    let(:response) { { 'parent_order_acceptance_id' => "\u00A0" } }
+
+    it 'reports unverified acceptance' do
+      expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected::Unverified, /verify order acceptance/)
     end
   end
 end

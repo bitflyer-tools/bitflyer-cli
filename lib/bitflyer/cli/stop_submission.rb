@@ -14,6 +14,8 @@ module Bitflyer
       UNVERIFIED = 'unverified'
       COMPLETED_PREFIX = 'completed:'
       LOCK_COUNT = 64
+      # Preserve the field order used by existing records and lock slots.
+      IDENTITY_FIELDS = %i[product_code condition_type side trigger_price size].freeze
 
       attr_reader :path
 
@@ -24,7 +26,7 @@ module Bitflyer
       end
 
       def initialize(api_key, stop)
-        key = Digest::SHA256.hexdigest([api_key, *stop.values].to_json)
+        key = Digest::SHA256.hexdigest([api_key, *stop.values_at(*IDENTITY_FIELDS)].to_json)
         directory = self.class.state_directory
         @path = File.join(directory, key)
         @lock_path = File.join(directory, "slot-#{key.to_i(16) % LOCK_COUNT}.lock")

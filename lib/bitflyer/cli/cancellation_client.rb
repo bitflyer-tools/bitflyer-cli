@@ -9,8 +9,8 @@ class CancellationClient
   API_URL = 'https://api.bitflyer.jp'
 
   Result = Data.define(:outcome, :http_code, :exchange_status, :message) do
-    def server_error?
-      http_code.to_i.between?(500, 599)
+    def unverified_http_status?
+      http_code == '408' || http_code.to_i.between?(500, 599)
     end
   end
 
@@ -42,7 +42,7 @@ class CancellationClient
     return Result.new(:accepted, code, nil, nil) if code == '200' && body.empty?
 
     unverified = Result.new(:unverified, code, nil, nil)
-    return unverified if unverified.server_error?
+    return unverified if unverified.unverified_http_status?
 
     error = parse_error(body)
     status = error['status']

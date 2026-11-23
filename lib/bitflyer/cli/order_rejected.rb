@@ -12,14 +12,24 @@ module Bitflyer
         status = response.status
         acceptance_id = body[acceptance_key]
         success = status.between?(200, 299)
-        return :accepted if success && accepted?(acceptance_id, body)
+        return :accepted if success && valid_acceptance?(acceptance_id, body)
         return :rejected if (success || client_rejection_status?(status)) && rejected?(acceptance_id, body)
 
         :unverified
       end
 
       def self.acceptance_id?(id)
-        id.is_a?(String) && !id.strip.empty?
+        id.is_a?(String) && !id.strip.empty? && id.match?(/[^[:space:]]/)
+      end
+
+      def self.check_submission!(response, acceptance_key)
+        status = response.status
+        body = response.body
+        return check!(body, acceptance_key) if status.between?(200, 299)
+
+        raise_rejection!(body) if status.between?(400, 499) && body.is_a?(Hash) && rejected?(body[acceptance_key], body)
+
+        raise Unverified, "Could not verify order acceptance (HTTP #{status})."
       end
 
       def self.check!(response, acceptance_key)
@@ -39,14 +49,9 @@ module Bitflyer
       end
 
       def self.valid_acceptance?(acceptance_id, body)
-        accepted?(acceptance_id, body) && acceptance_id.match?(/[^[:space:]]/)
-      end
-      private_class_method :valid_acceptance?
-
-      def self.accepted?(acceptance_id, body)
         acceptance_id?(acceptance_id) && !error_fields?(body)
       end
-      private_class_method :accepted?
+      private_class_method :valid_acceptance?
 
       def self.error_fields?(body)
         message = body['error_message']

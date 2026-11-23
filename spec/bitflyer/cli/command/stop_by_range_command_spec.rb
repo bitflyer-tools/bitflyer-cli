@@ -93,13 +93,22 @@ describe StopByRangeCommand, :stop_state do
       expect(private_client).not_to have_received(:send_parent_order)
     end
 
-    it 'uses the submission record written under the original stop key' do
+    it 'uses the original record and lock slot to block resubmission after reordering stop fields' do
       directory = Bitflyer::Cli::StopSubmission.state_directory
       key = Digest::SHA256.hexdigest(['key', 'FX_BTC_JPY', 'STOP', 'SELL', 995_000.0, 0.2].to_json)
+      record_path = File.join(directory, key)
+      acceptance_id = response.fetch('parent_order_acceptance_id')
       FileUtils.mkdir_p(directory)
-      File.write(File.join(directory, key), response.values.first)
+      File.write(record_path, "completed:#{acceptance_id}")
 
-      expect { run }.to output(/Previous stop order.*#{response.values.first}.*awaiting confirmation/).to_stdout
+      command = described_class.new
+      allow(command).to receive(:current_stop).and_wrap_original do |original, range|
+        original.call(range).to_a.reverse.to_h
+      end
+
+      expect { command.run(thor_options(range: 5000)) }
+        .to output(/Previous stop order.*#{acceptance_id}.*COMPLETED/).to_stdout
+      expect(Dir.children(directory)).to contain_exactly(key, "slot-#{key.to_i(16) % 64}.lock")
       expect(private_client).not_to have_received(:send_parent_order)
     end
 
@@ -320,6 +329,16 @@ describe StopByRangeCommand, :stop_state do
       expect { run }.to output(/Set stop order/).to_stdout
       expect { run(6000) }.to output(/Set stop order SELL \/ 994000/).to_stdout
       expect(private_client).to have_received(:send_parent_order).twice
+    end
+
+    it 'keeps an unverified stop record when the acceptance ID is a non-breaking space' do
+      stub_responses(private_client, send_parent_order: post_response(200, { 'parent_order_acceptance_id' => "\u00A0" }))
+
+      expect { run }.to raise_error(Bitflyer::Cli::StopSubmission::Unverified, /verify stop order acceptance/) do |error|
+        expect(File.read(error.message.split.last)).to eq('unverified')
+      end
+      expect { run }.to raise_error(Bitflyer::Cli::StopSubmission::Unverified, /unverified.*awaiting confirmation/)
+      expect(private_client).to have_received(:send_parent_order).once
     end
 
     it 'keeps the stop pending after a transport failure' do

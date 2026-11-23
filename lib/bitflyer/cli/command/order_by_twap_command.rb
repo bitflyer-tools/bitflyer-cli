@@ -40,13 +40,25 @@ class OrderByTWAPCommand
   def submit_slices(side, amount, number, interval)
     counts = { accepted: 0, rejected: 0, unverified: 0, unattempted: number }
     submit_on_schedule(number, interval) do
-      result = order(side, amount)
-      counts[result] += 1
-      counts[:unattempted] -= 1
-      break if result == :unverified
+      break if record_slice(counts, side, amount) == :unverified
     end
-    puts "TWAP exchange acceptance (slices): #{counts.map { |status, count| "#{count} #{status}" }.join(', ')}."
+    report_counts(counts)
     counts
+  rescue Interrupt
+    report_counts(counts)
+    raise
+  end
+
+  def record_slice(counts, side, amount)
+    result = :unverified
+    result = order(side, amount)
+  ensure
+    counts[result] += 1
+    counts[:unattempted] -= 1
+  end
+
+  def report_counts(counts)
+    puts "TWAP exchange acceptance (slices): #{counts.map { |status, count| "#{count} #{status}" }.join(', ')}."
   end
 
   def validate_interval!(interval)
