@@ -42,10 +42,12 @@ describe Bitflyer::Cli::RealtimeClient do
         end
         stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
         command = SummaryCommand.new
+        subscribed = observe_subscription(command)
 
         with_tls_server(connections: 2, upgrades: upgrades, keep_open_connections: 1,
                         fail_tls_handshake: fail_tls_handshake) do |requests, ready|
           allow(command).to receive(:render) do
+            subscribed.pop
             transport = client.websocket_client
             on_disconnect = transport.disconnected
             transport.disconnected = lambda do |error|
@@ -103,10 +105,12 @@ describe Bitflyer::Cli::RealtimeClient do
       end
       stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
       command = SummaryCommand.new
+      subscribed = observe_subscription(command)
       monitor = replacement = nil
 
       with_tls_server(connections: 2, keep_open_connections: 2) do |requests, ready|
         allow(command).to receive(:render) do
+          subscribed.pop
           transport = feed.websocket_client
           connection = transport.websocket_client
           expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
@@ -172,6 +176,70 @@ describe Bitflyer::Cli::RealtimeClient do
     peer&.kill&.join
   end
 
+  it 'renders account data and cancels both workers while the peer stalls TLS' do
+    stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
+    command = SummaryCommand.new
+    workers = Queue.new
+    allow(described_class).to receive(:new).and_wrap_original do |connect|
+      workers << Thread.current
+      connect.call
+    end
+    allow(command).to receive(:sleep).with(5) do
+      workers << Thread.current
+      Thread.stop
+    end
+    allow(command).to receive(:sleep).with(0.1).and_call_original
+    reader, writer = IO.pipe
+    original_stdout = $stdout
+    $stdout = writer
+    runner = Thread.new { command.run }
+    peer = nil
+
+    Timeout.timeout(5) do
+      peer = server.accept
+      expect(peer.readpartial(4096)).not_to be_empty
+      output = +''
+      output << reader.readpartial(4096) until output.include?("Balance:  N/A (N/A)\n")
+      expect(output).to include('Current:  Stale', 'Position: 0 * 0.0')
+      started_workers = Array.new(2) { workers.pop }
+      runner.raise(Interrupt)
+      runner.value
+      expect(started_workers).to all(have_attributes(alive?: false))
+      peer.read
+      expect(peer).to be_eof
+      writer.close
+      expect(reader.read).to end_with("\e[?25h")
+    end
+  ensure
+    runner&.kill&.join
+    $stdout = original_stdout
+    peer&.close
+    writer&.close unless writer&.closed?
+    reader&.close
+  end
+
+  it 'redraws the account with the live price after connecting' do
+    stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
+    command = SummaryCommand.new
+    subscribed = observe_subscription(command)
+
+    with_tls_server(keep_open_connections: 1) do |requests, ready|
+      allow(command).to receive(:sleep).with(5).and_call_original
+      expect(command).to receive(:sleep).with(0.1).and_invoke(
+        lambda do |_|
+          expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
+          subscribed.pop
+          ready << true
+          sleep 0.01 until command.send(:fresh_price) == 1_010_000.0
+        end,
+        ->(_) { raise Interrupt }
+      ).twice
+
+      expect { Timeout.timeout(5) { command.run } }
+        .to output(/Current:  Stale.*Current:  1,010,000/m).to_stdout
+    end
+  end
+
   it 'closes a stalled upgrade and delivers executions after reconnecting' do
     stub_const('Bitflyer::Cli::RealtimeClient::TLSConnection::UPGRADE_TIMEOUT', 1)
     upgrades = Queue.new
@@ -206,12 +274,14 @@ describe Bitflyer::Cli::RealtimeClient do
     end
     stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
     command = SummaryCommand.new
+    subscribed = observe_subscription(command)
 
     with_tls_server(connections: 2, keep_open_connections: 2) do |requests, ready|
       expect(clients).to be_empty
       workers = 2.times.flat_map do |index|
         connection, monitor, reader = nil
         allow(command).to receive(:render) do
+          subscribed.pop
           expect(clients.size).to eq(index + 1)
           transport = clients.last.websocket_client
           connection = transport.websocket_client
@@ -264,6 +334,15 @@ describe Bitflyer::Cli::RealtimeClient do
       expect { described_class.new }.to raise_error(OpenSSL::SSL::SSLError)
       expect(Timeout.timeout(5) { requests.pop }).to be_nil
     end
+  end
+
+  def observe_subscription(command)
+    subscribed = Queue.new
+    allow(command).to receive(:subscribe_to_feed).and_wrap_original do |subscribe, client|
+      subscribe.call(client)
+      subscribed << true
+    end
+    subscribed
   end
 
   def stub_tcp_failure(error_class)
