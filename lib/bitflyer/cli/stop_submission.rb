@@ -82,25 +82,19 @@ module Bitflyer
       end
 
       def record_response(response, acceptance_key)
-        status = response.status
-        body = response.body
-        acceptance_id = body[acceptance_key] if body.is_a?(Hash)
-        if acceptance_id.nil? && definite_rejection?(status, body)
+        case OrderRejected.classify(response, acceptance_key)
+        when :accepted
+          record(response.body.fetch(acceptance_key))
+        when :rejected
           clear
-          OrderRejected.check!(body, acceptance_key)
+          OrderRejected.raise_rejection!(response.body)
+        else
+          raise_unverified("Could not verify stop order acceptance (HTTP #{response.status}).")
         end
-        return record(acceptance_id) if OrderRejected.accepted?(status, acceptance_id, body)
-
-        raise_unverified("Could not verify stop order acceptance (HTTP #{status}).")
       end
 
       def clear
         File.unlink(@path)
-      end
-
-      def definite_rejection?(status, body)
-        verifiable = status.between?(200, 299) || (status.between?(400, 499) && status != 408)
-        verifiable && body.is_a?(Hash) && body['status'].is_a?(Integer) && body['status'].negative?
       end
     end
   end

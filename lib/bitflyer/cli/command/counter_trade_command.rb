@@ -105,28 +105,20 @@ class CounterTradeCommand
   end
 
   def record_response(submission, exposure, response)
-    status = response.status
-    body = response.body
-    id = body[ACCEPTANCE_ID] if body.is_a?(Hash)
-    return submission.record(exposure, id) if Bitflyer::Cli::OrderRejected.accepted?(status, id, body)
-
-    reject_order(submission, body) if id.nil? && definite_rejection?(status, body)
-    submission.require_reconciliation("Could not verify counter trade acceptance (HTTP #{status}).")
-  end
-
-  def reject_order(submission, body)
-    submission.clear
-    Bitflyer::Cli::OrderRejected.check!(body, ACCEPTANCE_ID)
+    case Bitflyer::Cli::OrderRejected.classify(response, ACCEPTANCE_ID)
+    when :accepted
+      submission.record(exposure, response.body.fetch(ACCEPTANCE_ID))
+    when :rejected
+      submission.clear
+      Bitflyer::Cli::OrderRejected.raise_rejection!(response.body)
+    else
+      submission.require_reconciliation("Could not verify counter trade acceptance (HTTP #{response.status}).")
+    end
   end
 
   def send_market_order(client, submission, side, size)
     client.send_child_order(product_code: PRODUCT_CODE, child_order_type: 'MARKET', side: side, size: size)
   rescue *COMMUNICATION_ERRORS
     submission.require_reconciliation('Could not verify counter trade acceptance due to a communication error.')
-  end
-
-  def definite_rejection?(status, body)
-    verifiable = status.between?(200, 299) || (status.between?(400, 499) && status != 408)
-    verifiable && body.is_a?(Hash) && body['status'].is_a?(Integer) && body['status'].negative?
   end
 end

@@ -101,21 +101,9 @@ class OrderByTWAPCommand
   end
 
   def report_order(response)
-    body = response.body
-    return :unverified unless body.is_a?(Hash) && verifiable_status?(response.status)
-
-    acceptance_id = body['child_order_acceptance_id']
-    if Bitflyer::Cli::OrderRejected.accepted?(response.status, acceptance_id, body)
-      puts body
-      return :accepted
-    end
-    return :unverified unless acceptance_id.nil? && Bitflyer::Cli::OrderRejected.negative_status?(body)
-
-    puts "An error has occurred\n#{body}"
-    :rejected
-  end
-
-  def verifiable_status?(status)
-    status.between?(200, 299) || (status.between?(400, 499) && status != 408)
+    result = Bitflyer::Cli::OrderRejected.classify(response, 'child_order_acceptance_id')
+    puts response.body if result == :accepted
+    puts "An error has occurred\n#{response.body}" if result == :rejected
+    result
   end
 end

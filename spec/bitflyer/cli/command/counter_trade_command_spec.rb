@@ -143,8 +143,10 @@ describe CounterTradeCommand, :counter_trade_state do
     let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.1)] }
     let(:accepted) { { 'status' => -205 } }
 
-    it 'raises with the exchange rejection' do
+    it 'raises with the exchange rejection and allows another submission' do
       expect { described_class.new.run }.to raise_error(Bitflyer::Cli::OrderRejected, /Order rejected:.*-205/)
+      expect { described_class.new.run }.to raise_error(Bitflyer::Cli::OrderRejected, /Order rejected:.*-205/)
+      expect(private_client).to have_received(:send_child_order).twice
     end
   end
 
@@ -157,6 +159,16 @@ describe CounterTradeCommand, :counter_trade_state do
       expect { described_class.new.run }.to raise_error(Thor::Error, /communication error/)
       expect { described_class.new.run }.to raise_error(Thor::Error, /acceptance is unverified/)
       expect(private_client).to have_received(:send_child_order).once
+    end
+
+    context 'with a negative fractional exchange status' do
+      let(:accepted) { { 'status' => -1.5 } }
+
+      it 'retains the unverified record and suppresses resubmission' do
+        expect { described_class.new.run }.to raise_error(Thor::Error, /HTTP 200/)
+        expect { described_class.new.run }.to raise_error(Thor::Error, /acceptance is unverified/)
+        expect(private_client).to have_received(:send_child_order).once
+      end
     end
 
     context 'with a gateway error carrying an exchange error body' do

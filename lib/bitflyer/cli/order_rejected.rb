@@ -5,17 +5,21 @@ module Bitflyer
     class OrderRejected < StandardError
       class Unverified < StandardError; end
 
-      def self.accepted?(status, acceptance_id, body)
-        status.between?(200, 299) && acceptance_id?(acceptance_id) && !error_fields?(body)
+      def self.classify(response, acceptance_key)
+        body = response.body
+        return :unverified unless body.is_a?(Hash)
+
+        status = response.status
+        acceptance_id = body[acceptance_key]
+        success = status.between?(200, 299)
+        return :accepted if success && accepted?(acceptance_id, body)
+        return :rejected if (success || client_rejection_status?(status)) && rejected?(acceptance_id, body)
+
+        :unverified
       end
 
       def self.acceptance_id?(id)
         id.is_a?(String) && !id.strip.empty?
-      end
-
-      def self.negative_status?(body)
-        status = body['status']
-        status.is_a?(Numeric) && status.negative?
       end
 
       def self.check!(response, acceptance_key)
@@ -24,16 +28,25 @@ module Bitflyer
         acceptance_id = response[acceptance_key]
         return if valid_acceptance?(acceptance_id, response)
 
-        raise Unverified, 'Could not verify order acceptance.' unless acceptance_id.nil? && rejected?(response)
+        raise Unverified, 'Could not verify order acceptance.' unless rejected?(acceptance_id, response)
 
+        raise_rejection!(response)
+      end
+
+      def self.raise_rejection!(response)
         message = response['error_message'].to_s
         raise self, message.empty? ? "Order rejected: #{response.inspect}" : message
       end
 
       def self.valid_acceptance?(acceptance_id, body)
-        acceptance_id?(acceptance_id) && acceptance_id.match?(/[^[:space:]]/) && !error_fields?(body)
+        accepted?(acceptance_id, body) && acceptance_id.match?(/[^[:space:]]/)
       end
       private_class_method :valid_acceptance?
+
+      def self.accepted?(acceptance_id, body)
+        acceptance_id?(acceptance_id) && !error_fields?(body)
+      end
+      private_class_method :accepted?
 
       def self.error_fields?(body)
         message = body['error_message']
@@ -41,10 +54,21 @@ module Bitflyer
       end
       private_class_method :error_fields?
 
-      def self.rejected?(response)
-        response['status'].is_a?(Integer) && negative_status?(response)
+      def self.rejected?(acceptance_id, body)
+        acceptance_id.nil? && body['status'].is_a?(Integer) && negative_status?(body)
       end
       private_class_method :rejected?
+
+      def self.negative_status?(body)
+        status = body['status']
+        status.is_a?(Numeric) && status.negative?
+      end
+      private_class_method :negative_status?
+
+      def self.client_rejection_status?(status)
+        status.between?(400, 499) && status != 408
+      end
+      private_class_method :client_rejection_status?
     end
   end
 end
