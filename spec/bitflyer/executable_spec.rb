@@ -382,6 +382,8 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     ['400', '{"status":-200.0,"error_message":"unexpected reply"}',
      'Could not verify cancel-all acceptance from bitFlyer (HTTP 400).',
      'Could not verify cancellation acceptance from bitFlyer.'],
+    ['408', '{"status":-200}', 'Could not verify cancel-all acceptance from bitFlyer (HTTP 408).',
+     'Could not verify cancellation acceptance from bitFlyer (HTTP 408).'],
     ['503', '{"status":-200,"error_message":"Service unavailable."}',
      'Could not verify cancel-all acceptance from bitFlyer (HTTP 503).',
      'Could not verify cancellation acceptance from bitFlyer (HTTP 503).']
