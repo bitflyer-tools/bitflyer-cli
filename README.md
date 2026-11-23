@@ -116,6 +116,11 @@ across terminal parent-order states. If a communication error interrupts the
 lookup or the limit prevents confirmation, the CLI exits with status 1,
 reports the record path, and keeps the record to prevent resubmission.
 
+For a canceled, expired, or rejected stop, the CLI requires a confirmed zero
+executed size before replacing it with the same parameters. If the stop filled
+in part or its executed size is unknown, the CLI keeps the record and reports
+its path. Confirm the fill and the updated position in bitFlyer before retrying.
+
 ### Offset a position
 
 Before sending an offset, `counter_trade` checks active parent orders for the

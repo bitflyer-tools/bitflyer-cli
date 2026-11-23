@@ -26,13 +26,17 @@ module Bitflyer
         end
       end
 
-      def find_state(states, max_requests:, &match_order)
+      def find_across_states(states, max_requests:, &match_order)
         before_page = lambda do
           raise RequestLimitExceeded if max_requests.zero?
 
           max_requests -= 1
         end
-        states.find { |state| find(state, before_page: before_page, &match_order) }
+        states.each do |state|
+          order = find(state, before_page: before_page, &match_order)
+          return [state, order] if order
+        end
+        nil
       end
 
       private

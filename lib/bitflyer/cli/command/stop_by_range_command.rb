@@ -15,9 +15,6 @@ class StopByRangeCommand
   LookupFailed = Bitflyer::Cli::ParentOrderLookup::LookupFailed
 
   PRODUCT_CODE = 'FX_BTC_JPY'
-  HISTORY_REQUEST_LIMIT = 10
-  TERMINAL_STATES = %w[CANCELED EXPIRED REJECTED COMPLETED].freeze
-  ACCEPTANCE_ID = 'parent_order_acceptance_id'
 
   def run(options)
     raise ArgumentError, 'Range must be positive' unless options.range.positive?
@@ -66,7 +63,7 @@ class StopByRangeCommand
   end
 
   def pending_stop?(submission, pending, description)
-    id, state = submission.reconcile(pending) { terminal_state(pending, submission.path) }
+    id, state = submission.reconcile(pending, parent_order_lookup)
     return false if state && state != 'COMPLETED'
 
     if id == Bitflyer::Cli::StopSubmission::UNVERIFIED
@@ -76,16 +73,6 @@ class StopByRangeCommand
     puts "Previous stop order #{description} (#{id}): #{state || 'awaiting confirmation'}"
     puts "Completed submission record: #{submission.path}" if state == 'COMPLETED'
     true
-  end
-
-  def terminal_state(pending, record_path)
-    matches_pending = ->(order) { order[ACCEPTANCE_ID] == pending }
-    parent_order_lookup.find_state(TERMINAL_STATES, max_requests: HISTORY_REQUEST_LIMIT, &matches_pending)
-  rescue Bitflyer::Cli::ParentOrderLookup::RequestLimitExceeded
-    raise Thor::Error, "Stop order #{pending} still requires reconciliation after " \
-                       "#{HISTORY_REQUEST_LIMIT} history requests. Submission record: #{record_path}"
-  rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
-    raise LookupFailed, "Failed to look up terminal parent orders: #{e.message}. Submission record: #{record_path}"
   end
 
   def current_stop(range)
@@ -117,7 +104,7 @@ class StopByRangeCommand
   end
 
   def submit_stop(stop, description, submission)
-    submission.submit(ACCEPTANCE_ID) do
+    submission.submit(Bitflyer::Cli::StopSubmission::ACCEPTANCE_ID) do
       http_private_client.send_parent_order(order_method: 'SIMPLE', parameters: [stop])
     end
     puts "Set stop order #{description}"

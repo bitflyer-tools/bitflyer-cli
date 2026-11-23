@@ -173,7 +173,7 @@ describe StopByRangeCommand, :stop_state do
       reduced_positions = [position(side: 'BUY', price: 1_000_000, size: 0.1)]
       allow(private_client).to receive(:parent_orders).with(hash_including(parent_order_state: 'CANCELED')) do
         stub_responses(private_client, positions: reduced_positions)
-        [response]
+        [response.merge('executed_size' => 0)]
       end
 
       expect { run }.to raise_error(StopByRangeCommand::LookupFailed, /Position changed/)
@@ -232,13 +232,34 @@ describe StopByRangeCommand, :stop_state do
       [first, second].compact.each { |thread| thread.kill.join }
     end
 
-    it 'allows replacement after the accepted stop is canceled' do
+    it 'allows replacement after the accepted stop is canceled with zero fills' do
       expect { run }.to output(/Set stop order/).to_stdout
       allow(private_client).to receive(:parent_orders)
-        .with(hash_including(parent_order_state: 'CANCELED')).and_return([response])
+        .with(hash_including(parent_order_state: 'CANCELED')).and_return([response.merge('executed_size' => 0)])
 
       expect { run }.to output(/Set stop order/).to_stdout
       expect(private_client).to have_received(:send_parent_order).twice
+    end
+
+    [
+      ['CANCELED', 0.05, /executed 0.05 BTC/],
+      ['CANCELED', nil, /unconfirmed executed size/],
+      ['EXPIRED', 0.05, /executed 0.05 BTC/],
+      ['REJECTED', nil, /unconfirmed executed size/]
+    ].each do |state, size, message|
+      it "retains a #{state} stop with executed size #{size.inspect} while the position is unchanged" do
+        expect { run }.to output(/Set stop order/).to_stdout
+        directory = Bitflyer::Cli::StopSubmission.state_directory
+        record = Dir.glob(File.join(directory, '*')).find { |path| !path.end_with?('.lock') }
+        allow(private_client).to receive(:parent_orders)
+          .with(hash_including(parent_order_state: state)).and_return([response.merge('executed_size' => size)])
+
+        expect { run }.to raise_error(Thor::Error, message) do |error|
+          expect(error.message).to include(state, record)
+        end
+        expect(File.read(record)).to eq(response.fetch('parent_order_acceptance_id'))
+        expect(private_client).to have_received(:send_parent_order).once
+      end
     end
 
     context 'when reconciling a stop against paginated history' do
@@ -435,7 +456,7 @@ describe StopByRangeCommand, :stop_state do
 
         stub_responses(private_client, parent_orders: [])
         allow(private_client).to receive(:parent_orders)
-          .with(hash_including(parent_order_state: 'CANCELED')).and_return([response])
+          .with(hash_including(parent_order_state: 'CANCELED')).and_return([response.merge('executed_size' => 0)])
         expect { run }.to output(/Set stop order/).to_stdout
         expect(private_client).to have_received(:send_parent_order).twice
       end
