@@ -9,6 +9,8 @@ require 'bitflyer/cli/submission_state_directory'
 module Bitflyer
   module Cli
     class CounterTradeSubmission
+      attr_reader :path
+
       def self.state_directory
         root = ENV.fetch('XDG_STATE_HOME', nil)
         root = File.expand_path('~/.local/state') if root.to_s.empty?
