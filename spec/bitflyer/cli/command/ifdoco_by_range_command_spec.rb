@@ -4,10 +4,11 @@ describe IFDOCOByRangeCommand do
   let!(:public_client) { stub_public_client }
   let!(:private_client) { stub_persistent_client }
   let(:response) { { 'parent_order_acceptance_id' => 'JRF20180101-000000-000001' } }
+  let(:http_status) { 200 }
 
   before do
     stub_responses(public_client, ticker: { 'ltp' => 1_000_000 })
-    submission = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, response)
+    submission = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(http_status, response)
     stub_responses(private_client, send_parent_order: submission)
   end
 
@@ -132,6 +133,26 @@ describe IFDOCOByRangeCommand do
 
     it 'raises with the exchange rejection' do
       expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected, /Order rejected:.*-200/)
+    end
+  end
+
+  context 'when the exchange explicitly rejects the order over HTTP 400' do
+    let(:http_status) { 400 }
+    let(:response) { { 'status' => -200, 'error_message' => 'Invalid price' } }
+
+    it 'raises with the exchange rejection' do
+      expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected, 'Invalid price')
+      expect(private_client).to have_received(:send_parent_order).once
+    end
+  end
+
+  context 'when the request times out with a negative exchange status over HTTP 408' do
+    let(:http_status) { 408 }
+    let(:response) { { 'status' => -1 } }
+
+    it 'reports unverified acceptance instead of a confirmed rejection' do
+      expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected::Unverified, /HTTP 408/)
+      expect(private_client).to have_received(:send_parent_order).once
     end
   end
 
