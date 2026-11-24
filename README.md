@@ -138,11 +138,16 @@ is pending, runs using other API keys are blocked for that product as well.
 
 If the CLI cannot confirm acceptance, the final order state, or the resulting
 exposure, it exits with status 1 and shows the record path. Retry to check the
-order and position again. If automatic reconciliation cannot complete, check
-in bitFlyer that the order was never accepted or is no longer live and that
-the current position reflects all fills. Once confirmed, remove the JSON record
-at the displayed path while no `counter_trade` commands are running. Keep the
-`.lock` file in place.
+order and position again. bitFlyer omits a canceled, expired, or rejected order
+from the order history lookup when it never received a fill, so a retry whose
+previous offset never filled gets an empty result instead of a terminal order.
+The CLI treats that empty result the same as an unverifiable lookup: it keeps
+the record and reports the acceptance ID and record path rather than guessing
+the outcome. If automatic reconciliation cannot complete, check in bitFlyer
+that the order was never accepted or is no longer live and that the current
+position reflects all fills. Once confirmed, remove the JSON record at the
+displayed path while no `counter_trade` commands are running. Keep the `.lock`
+file in place.
 
 ### List and cancel open orders
 
