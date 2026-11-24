@@ -124,9 +124,8 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
   end
 
   it 'prints a ticker rejection to stderr and exits unsuccessfully without placing an order' do
-    public_client = stub_public_client
-    stub_responses(public_client, ticker: { 'status' => -1, 'error_message' => 'Ticker unavailable' })
-    stub_responses(private_client, send_child_order: {})
+    private_client = stub_persistent_client
+    allow(private_client).to receive(:ticker).and_return('status' => -1, 'error_message' => 'Ticker unavailable')
 
     expect do
       expect { run_cli('order_by_best', '--amount=0.01', '--type=buy') }
@@ -831,9 +830,9 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
 
       before do
         stub_credentials
-        public_client = instance_double(Bitflyer::HTTP::Public::Client, ticker: { 'best_bid' => 1_000_000, 'ltp' => 1_000_000 })
-        allow(Bitflyer).to receive(:http_public_client).and_return(public_client)
-        allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true).and_yield(transport)
+        ticker_response = instance_double(Net::HTTPResponse, code: '200',
+                                                               body: JSON.generate(best_bid: 1_000_000, ltp: 1_000_000))
+        allow(transport).to receive(:request).with(instance_of(Net::HTTP::Get)).and_return(ticker_response)
         allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true, keep_alive_timeout: 30)
                                          .and_return(transport)
       end
@@ -843,15 +842,18 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
         allow(transport).to receive(:request).with(instance_of(Net::HTTP::Post)).and_return(response)
       end
 
+      def expect_single_submission(path)
+        expect(transport).to have_received(:request).with(instance_of(Net::HTTP::Get)).once
+        expect(transport).to have_received(:request).with(having_attributes(path: path)).once
+      end
+
       it 'reports HTTP 503 with an acceptance ID as unverified without retrying' do
         stub_placement_response('503', "#{order_type}_order_acceptance_id" => 'accepted')
 
         expect do
           expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
         end.to output("Could not verify order acceptance (HTTP 503).\n").to_stderr.and output('').to_stdout
-        expect(transport).to have_received(:request).once do |request|
-          expect(request.path).to eq("/v1/me/send#{order_type}order")
-        end
+        expect_single_submission("/v1/me/send#{order_type}order")
         expect(transport).to have_received(:finish).once
       end
 
@@ -861,7 +863,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
         expect do
           expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
         end.to output(/Could not verify order acceptance: .*status 503/).to_stderr.and output('').to_stdout
-        expect(transport).to have_received(:request).once
+        expect_single_submission("/v1/me/send#{order_type}order")
       end
 
       it 'reports an explicit HTTP 400 exchange rejection' do
@@ -870,7 +872,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
         expect do
           expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
         end.to output("Insufficient margin\n").to_stderr.and output('').to_stdout
-        expect(transport).to have_received(:request).once
+        expect_single_submission("/v1/me/send#{order_type}order")
       end
 
       it 'escapes terminal controls in the order rejection diagnostic on stderr' do
@@ -879,14 +881,14 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
         expect do
           expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
         end.to output("Denied\\r\\n\\e[2J\n").to_stderr.and output('').to_stdout
-        expect(transport).to have_received(:request).once
+        expect_single_submission("/v1/me/send#{order_type}order")
       end
 
       it 'confirms placement for HTTP 201 with a valid acceptance ID' do
         stub_placement_response('201', "#{order_type}_order_acceptance_id" => 'accepted')
 
         expect { run_cli(*args) }.to output('').to_stderr.and output(confirmation).to_stdout
-        expect(transport).to have_received(:request).once
+        expect_single_submission("/v1/me/send#{order_type}order")
         expect(transport).to have_received(:finish).once
       end
     end
@@ -908,7 +910,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       before do
         positions = [position(side: 'BUY', price: 1_000_000, size: 0.1)]
         stub_responses(private_client, positions: positions, parent_orders: [])
-        stub_responses(stub_public_client, ticker: { 'best_bid' => 1_000_000, 'ltp' => 1_000_000 })
+        allow(private_client).to receive(:ticker).and_return('best_bid' => 1_000_000, 'ltp' => 1_000_000)
       end
 
       it 'prints the exchange rejection to stderr and exits unsuccessfully' do

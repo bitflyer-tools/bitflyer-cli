@@ -23,7 +23,13 @@ module Bitflyer
       end
 
       def initialize(key, secret) # rubocop:disable Lint/MissingSuper
-        @connection = Connection.new(key, secret)
+        @session = Session.new
+        @connection = Connection.new(key, secret, @session)
+        @ticker_connection = Connection.new(nil, nil, @session)
+      end
+
+      def ticker(product_code: 'FX_BTC_JPY')
+        @ticker_connection.get('/v1/ticker', product_code: product_code).body
       end
 
       def child_order_by_acceptance_id(product_code:, child_order_acceptance_id:)
@@ -32,24 +38,36 @@ module Bitflyer
       end
 
       def close
-        @connection.close
+        @session.close
       end
 
-      # Reuse the gem's request construction, signing and response parsing.
-      class Connection < HTTP::Connection
+      # Keeps one Net::HTTP session open across the unsigned ticker connection and the signed order connection.
+      class Session
+        def http(uri)
+          @http ||= Net::HTTP.start(uri.host, uri.port, use_ssl: true, keep_alive_timeout: 30)
+        end
+
         def close
           @http.finish if @http&.started?
         ensure
           @http = nil
         end
+      end
+      private_constant :Session
+
+      # Reuse the gem's request construction, signing and response parsing.
+      class Connection < HTTP::Connection
+        def initialize(key, secret, session)
+          super(key, secret)
+          @session = session
+        end
 
         private
 
         def execute(request)
-          @http ||= Net::HTTP.start(@uri.host, @uri.port, use_ssl: true, keep_alive_timeout: 30)
           # Net::HTTP reconnects before sending when it detects a closed socket.
           # Its transport retries apply only to idempotent methods, excluding POST.
-          response = @http.request(request)
+          response = @session.http(@uri).request(request)
           parse_response(request, response)
         end
 
