@@ -126,6 +126,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
   it 'prints a ticker rejection to stderr and exits unsuccessfully without placing an order' do
     private_client = stub_persistent_client
     allow(private_client).to receive(:ticker).and_return('status' => -1, 'error_message' => 'Ticker unavailable')
+    allow(private_client).to receive(:send_child_order)
 
     expect do
       expect { run_cli('order_by_best', '--amount=0.01', '--type=buy') }
