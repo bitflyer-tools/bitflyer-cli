@@ -53,7 +53,7 @@ class CounterTradeCommand
     end
 
     before = BigDecimal(pending['exposure'].to_s, exception: false)
-    executed = terminal_fill(id)
+    executed = terminal_fill(submission, id)
     unless before&.finite? && executed && executed <= before.abs
       submission.require_reconciliation("Previous counter trade (#{id}) is awaiting reconciliation.")
     end
@@ -61,19 +61,29 @@ class CounterTradeCommand
     before.positive? ? before - executed : before + executed
   end
 
-  def terminal_fill(id)
-    order = terminal_order(id)
+  def terminal_fill(submission, id)
+    order = terminal_order(submission, id)
     return unless order
 
     size = BigDecimal(order['executed_size'].to_s, exception: false)
     size if size&.finite? && !size.negative?
   end
 
-  def terminal_order(id)
+  def terminal_order(submission, id)
     orders = persistent_http_client.child_order_by_acceptance_id(
       product_code: PRODUCT_CODE, child_order_acceptance_id: id
     )
-    return unless orders.is_a?(Array) && orders.one?
+    return unless orders.is_a?(Array)
+
+    if orders.empty?
+      submission.require_reconciliation(
+        "Previous counter trade (#{id}) is absent from the order history lookup. bitFlyer omits " \
+        'a canceled, expired, or rejected order from this endpoint when it never received a fill, ' \
+        'so automatic reconciliation cannot establish the outcome.'
+      )
+    end
+
+    return unless orders.one?
 
     order = orders.first
     return unless order.is_a?(Hash) && order[ACCEPTANCE_ID] == id
