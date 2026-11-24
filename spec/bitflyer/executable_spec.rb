@@ -677,6 +677,16 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       expect(transport).to have_received(:request)
         .with(an_object_having_attributes(path: '/v1/me/sendchildorder')).once
     end
+
+    it 'requires manual reconciliation when the order is absent from a successful empty lookup' do
+      stub_order_lookup(order_response(200, []))
+
+      expect do
+        expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/#{Regexp.escape(acceptance_id)}.*absent from the order history lookup.*Record:/m).to_stderr
+      expect(transport).to have_received(:request)
+        .with(an_object_having_attributes(path: '/v1/me/sendchildorder')).once
+    end
   end
 
   context 'when submitting a protective stop' do
