@@ -21,8 +21,9 @@ module Bitflyer
       HISTORY_REQUEST_LIMIT = 10
       TERMINAL_STATES = %w[CANCELED EXPIRED REJECTED COMPLETED].freeze
       ACCEPTANCE_ID = 'parent_order_acceptance_id'
-      # Preserve the field order used by existing records and lock slots.
-      IDENTITY_FIELDS = %i[product_code condition_type side trigger_price size].freeze
+      # Scope records and lock slots to account, product, and closing side only, so an
+      # unresolved submission blocks resubmission regardless of trigger price or size.
+      IDENTITY_FIELDS = %i[product_code condition_type side].freeze
 
       attr_reader :path
 
