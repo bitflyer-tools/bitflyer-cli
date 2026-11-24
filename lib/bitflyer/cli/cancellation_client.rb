@@ -4,6 +4,7 @@ require 'json'
 require 'net/http'
 require 'openssl'
 require 'uri'
+require 'bitflyer/cli/terminal_text'
 
 class CancellationClient
   API_URL = 'https://api.bitflyer.jp'
@@ -48,7 +49,7 @@ class CancellationClient
     status = error['status']
     return unverified unless status.is_a?(Integer) && status.negative?
 
-    Result.new(:rejected, code, status, error['error_message'].to_s)
+    Result.new(:rejected, code, status, Bitflyer::Cli::TerminalText.escape(error['error_message'].to_s))
   end
 
   def parse_error(body)
