@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'bitflyer/cli/counter_trade_submission'
+require 'bitflyer/cli/counter_trade_terminal_order_lookup'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/order_rejected'
 require 'bitflyer/cli/protective_stop_check'
@@ -14,7 +15,6 @@ class CounterTradeCommand
   PRODUCT_CODE = 'FX_BTC_JPY'
   ACCEPTANCE_ID = 'child_order_acceptance_id'
   COMMUNICATION_ERRORS = Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS
-  TERMINAL_STATES = %w[COMPLETED CANCELED EXPIRED REJECTED].freeze
 
   def run
     submission = Bitflyer::Cli::CounterTradeSubmission.new(PRODUCT_CODE, api_key)
@@ -53,7 +53,7 @@ class CounterTradeCommand
     end
 
     before = BigDecimal(pending['exposure'].to_s, exception: false)
-    executed = terminal_fill(submission, id)
+    executed = terminal_order_lookup.executed_size(submission, id)
     unless before&.finite? && executed && executed <= before.abs
       submission.require_reconciliation("Previous counter trade (#{id}) is awaiting reconciliation.")
     end
@@ -61,45 +61,8 @@ class CounterTradeCommand
     before.positive? ? before - executed : before + executed
   end
 
-  def terminal_fill(submission, id)
-    order = terminal_order(submission, id)
-    return unless order
-
-    size = BigDecimal(order['executed_size'].to_s, exception: false)
-    size if size&.finite? && !size.negative?
-  end
-
-  def terminal_order(submission, id)
-    orders = fetch_orders(id)
-    return unless orders.is_a?(Array)
-
-    require_absent_order_reconciliation(submission, id) if orders.empty?
-    matching_terminal_order(orders, id)
-  rescue *COMMUNICATION_ERRORS
-    nil
-  end
-
-  def fetch_orders(id)
-    persistent_http_client.child_order_by_acceptance_id(
-      product_code: PRODUCT_CODE, child_order_acceptance_id: id
-    )
-  end
-
-  def matching_terminal_order(orders, id)
-    return unless orders.one?
-
-    order = orders.first
-    return unless order.is_a?(Hash) && order[ACCEPTANCE_ID] == id
-
-    order if TERMINAL_STATES.include?(order['child_order_state'])
-  end
-
-  def require_absent_order_reconciliation(submission, id)
-    submission.require_reconciliation(
-      "Previous counter trade (#{id}) is absent from the order history lookup. bitFlyer omits " \
-      'a canceled, expired, or rejected order from this endpoint when it never received a fill, ' \
-      'so automatic reconciliation cannot establish the outcome.'
-    )
+  def terminal_order_lookup
+    @terminal_order_lookup ||= Bitflyer::Cli::CounterTradeTerminalOrderLookup.new(persistent_http_client, PRODUCT_CODE)
   end
 
   def place_order(submission, position)
