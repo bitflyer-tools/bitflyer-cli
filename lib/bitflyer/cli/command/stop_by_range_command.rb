@@ -44,7 +44,7 @@ class StopByRangeCommand
     return unless pending
 
     raise Thor::Error, "A counter trade offset for #{PRODUCT_CODE} is unresolved. Resolve it before placing a " \
-                        "stop; the position may not yet reflect the offset. Counter trade record: #{coordination.path}"
+                       "stop; the position may not yet reflect the offset. Counter trade record: #{coordination.path}"
   end
 
   def current_stop_matches?(range, stop)
