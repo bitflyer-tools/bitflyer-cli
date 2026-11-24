@@ -19,6 +19,7 @@ Run the same commands as CI from the repository root.
 bundle exec rspec
 bundle exec rubocop
 gem build bitflyer-cli.gemspec
+bash test/release_bump.sh
 ```
 
 The specs use client doubles and run without bitFlyer API credentials.
