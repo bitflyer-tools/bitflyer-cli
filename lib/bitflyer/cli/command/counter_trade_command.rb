@@ -70,27 +70,36 @@ class CounterTradeCommand
   end
 
   def terminal_order(submission, id)
-    orders = persistent_http_client.child_order_by_acceptance_id(
-      product_code: PRODUCT_CODE, child_order_acceptance_id: id
-    )
+    orders = fetch_orders(id)
     return unless orders.is_a?(Array)
 
-    if orders.empty?
-      submission.require_reconciliation(
-        "Previous counter trade (#{id}) is absent from the order history lookup. bitFlyer omits " \
-        'a canceled, expired, or rejected order from this endpoint when it never received a fill, ' \
-        'so automatic reconciliation cannot establish the outcome.'
-      )
-    end
+    require_absent_order_reconciliation(submission, id) if orders.empty?
+    matching_terminal_order(orders, id)
+  rescue *COMMUNICATION_ERRORS
+    nil
+  end
 
+  def fetch_orders(id)
+    persistent_http_client.child_order_by_acceptance_id(
+      product_code: PRODUCT_CODE, child_order_acceptance_id: id
+    )
+  end
+
+  def matching_terminal_order(orders, id)
     return unless orders.one?
 
     order = orders.first
     return unless order.is_a?(Hash) && order[ACCEPTANCE_ID] == id
 
     order if TERMINAL_STATES.include?(order['child_order_state'])
-  rescue *COMMUNICATION_ERRORS
-    nil
+  end
+
+  def require_absent_order_reconciliation(submission, id)
+    submission.require_reconciliation(
+      "Previous counter trade (#{id}) is absent from the order history lookup. bitFlyer omits " \
+      'a canceled, expired, or rejected order from this endpoint when it never received a fill, ' \
+      'so automatic reconciliation cannot establish the outcome.'
+    )
   end
 
   def place_order(submission, position)
