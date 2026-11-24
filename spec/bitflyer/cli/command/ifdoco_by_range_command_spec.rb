@@ -135,6 +135,33 @@ describe IFDOCOByRangeCommand do
     end
   end
 
+  context 'when the exchange explicitly rejects the order with an error message' do
+    before do
+      submission = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(400, {
+                                                                             'status' => -1,
+                                                                             'error_message' => 'Invalid request'
+                                                                           })
+      stub_responses(private_client, send_parent_order: submission)
+    end
+
+    it 'raises with the exchange error message and sends exactly one request' do
+      expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected, 'Invalid request')
+      expect(private_client).to have_received(:send_parent_order).once
+    end
+  end
+
+  context 'when the order submission times out with HTTP 408' do
+    before do
+      submission = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(408, { 'status' => -1 })
+      stub_responses(private_client, send_parent_order: submission)
+    end
+
+    it 'reports unverified acceptance and sends exactly one request' do
+      expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected::Unverified, /HTTP 408/)
+      expect(private_client).to have_received(:send_parent_order).once
+    end
+  end
+
   context 'when the acceptance ID is a non-breaking space' do
     let(:response) { { 'parent_order_acceptance_id' => "\u00A0" } }
 

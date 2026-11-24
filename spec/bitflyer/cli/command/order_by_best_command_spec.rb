@@ -83,6 +83,33 @@ describe OrderByBestCommand do
     end
   end
 
+  context 'when the exchange explicitly rejects the order with an error message' do
+    before do
+      submission = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(400, {
+                                                                             'status' => -1,
+                                                                             'error_message' => 'Invalid request'
+                                                                           })
+      stub_responses(private_client, send_child_order: submission)
+    end
+
+    it 'raises with the exchange error message and sends exactly one request' do
+      expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected, 'Invalid request')
+      expect(private_client).to have_received(:send_child_order).once
+    end
+  end
+
+  context 'when the order submission times out with HTTP 408' do
+    before do
+      submission = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(408, { 'status' => -1 })
+      stub_responses(private_client, send_child_order: submission)
+    end
+
+    it 'reports unverified acceptance and sends exactly one request' do
+      expect { run('buy') }.to raise_error(Bitflyer::Cli::OrderRejected::Unverified, /HTTP 408/)
+      expect(private_client).to have_received(:send_child_order).once
+    end
+  end
+
   context 'when an acceptance ID accompanies a negative status' do
     let(:response) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001', 'status' => -200 } }
 
