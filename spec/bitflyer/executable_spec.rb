@@ -144,6 +144,25 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     end.to output("rejected\n").to_stderr
   end
 
+  it 'escapes terminal controls in the cancel-all rejection diagnostic on stderr' do
+    stub_credentials
+    stub_cancellation_response('400', JSON.generate(status: -200, error_message: "Denied\r\n\e[2J"))
+
+    expect do
+      expect { run_cli('cancel_all') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Denied\\r\\n\\e[2J\n").to_stderr.and output('').to_stdout
+  end
+
+  it 'escapes terminal controls in the cancel-order rejection diagnostic on stderr' do
+    stub_credentials
+    stub_cancellation_response('400', JSON.generate(status: -200, error_message: "Denied\r\n\e[2J"))
+
+    expect do
+      expect { run_cli('cancel_order', 'child', 'JOR-order') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Cancellation request rejected. Denied\\r\\n\\e[2J\n").to_stderr.and output('').to_stdout
+  end
+
   it 'reports a malformed cancel-all response as unverified without retrying' do
     stub_credentials
     transport = stub_cancellation_response('200', 'Unexpected response')
@@ -851,6 +870,15 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
         expect do
           expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
         end.to output("Insufficient margin\n").to_stderr.and output('').to_stdout
+        expect(transport).to have_received(:request).once
+      end
+
+      it 'escapes terminal controls in the order rejection diagnostic on stderr' do
+        stub_placement_response('400', 'status' => -205, 'error_message' => "Denied\r\n\e[2J")
+
+        expect do
+          expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Denied\\r\\n\\e[2J\n").to_stderr.and output('').to_stdout
         expect(transport).to have_received(:request).once
       end
 
