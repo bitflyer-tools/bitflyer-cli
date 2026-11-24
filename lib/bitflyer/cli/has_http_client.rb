@@ -41,15 +41,15 @@ module HasHTTPClient
     close_persistent_http_client
   end
 
-  def fetch_ticker_price(field)
-    price = fetch_ticker[field]
+  def fetch_ticker_price(field, client:)
+    price = fetch_ticker(client)[field]
     return price if (price.is_a?(Integer) || price.is_a?(Float)) && price.finite? && price.positive?
 
     raise TickerError, "Ticker error: #{field} must be a positive, finite number"
   end
 
-  def fetch_ticker
-    ticker = http_public_client.ticker(product_code: 'FX_BTC_JPY')
+  def fetch_ticker(client)
+    ticker = client.ticker(product_code: 'FX_BTC_JPY')
     raise TickerError, 'Ticker error: unexpected response' unless ticker.is_a?(Hash)
 
     if ticker.fetch('status', 0) != 0 || ticker['error_message']
