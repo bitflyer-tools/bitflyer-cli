@@ -63,6 +63,15 @@ describe OrderByBestCommand do
     expect(private_client).not_to have_received(:send_child_order)
   end
 
+  it 'escapes terminal controls in a ticker rejection message' do
+    allow(private_client).to receive(:ticker).and_return(
+      'status' => -1, 'error_message' => "Denied\r\n\e[2J", 'best_bid' => 1_000_000
+    )
+
+    expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, "Ticker error: Denied\\r\\n\\e[2J")
+    expect(private_client).not_to have_received(:send_child_order)
+  end
+
   { 'buy' => 'best_bid', 'sell' => 'best_ask' }.each do |side, field|
     it "requires #{field} for a #{side} limit order" do
       ticker = { 'best_bid' => 1_000_000, 'best_ask' => 1_000_100 }

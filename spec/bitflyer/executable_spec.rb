@@ -135,6 +135,18 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     expect(private_client).not_to have_received(:send_child_order)
   end
 
+  it 'escapes terminal controls in the ticker rejection diagnostic on stderr' do
+    private_client = stub_persistent_client
+    allow(private_client).to receive(:ticker).and_return('status' => -1, 'error_message' => "Denied\r\n\e[2J")
+    allow(private_client).to receive(:send_child_order)
+
+    expect do
+      expect { run_cli('order_by_best', '--amount=0.01', '--type=buy') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Ticker error: Denied\\r\\n\\e[2J\n").to_stderr.and output('').to_stdout
+    expect(private_client).not_to have_received(:send_child_order)
+  end
+
   it 'prints a cancel-all rejection to stderr and exits unsuccessfully' do
     stub_credentials
     stub_cancellation_response('400', JSON.generate(status: -200, error_message: 'rejected'))
