@@ -134,8 +134,9 @@ describe Bitflyer::Cli::OrderRejected do
     end
 
     it 'falls back to the inspected response when there is no error message' do
-      expect { described_class.raise_rejection!('status' => -205) }
-        .to raise_error(described_class, 'Order rejected: {"status"=>-205}')
+      response = { 'status' => -205 }
+      expect { described_class.raise_rejection!(response) }
+        .to raise_error(described_class, "Order rejected: #{response.inspect}")
     end
   end
 
