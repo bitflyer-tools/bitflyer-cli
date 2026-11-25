@@ -15,7 +15,12 @@ module Bitflyer
         return unless stop_candidate?(order)
         return :conflict if different_size?(order['size'])
 
-        detail = parent_order_detail(order.fetch('parent_order_id'))
+        classify_detail(parent_order_detail(order.fetch('parent_order_id')))
+      end
+
+      private
+
+      def classify_detail(detail)
         parameters = detail.fetch('parameters')
         return unless detail['order_method'] == 'SIMPLE' && parameters.one?
 
@@ -24,8 +29,6 @@ module Bitflyer
 
         @stop.all? { |key, value| parameter[key.to_s] == value } ? :exact : :conflict
       end
-
-      private
 
       def same_scope?(parameter)
         %i[product_code condition_type side].all? { |key| parameter[key.to_s] == @stop.fetch(key) }

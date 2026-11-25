@@ -436,7 +436,7 @@ describe StopByRangeCommand, :stop_state do
         other_stops = (2..21).map do |id|
           parent.merge('id' => id, 'parent_order_id' => "JCO-other-#{id}", 'side' => 'SELL', 'size' => 0.02)
         end
-        stub_responses(private_client, parent_orders: other_stops)
+        stub_responses(private_client, parent_orders: other_stops, parent_order: {})
         ids = other_stops.map { |order| order.fetch('parent_order_id') }
 
         expect { run }.to raise_error(Thor::Error, "Conflicting active stop orders: #{ids.join(', ')}")
