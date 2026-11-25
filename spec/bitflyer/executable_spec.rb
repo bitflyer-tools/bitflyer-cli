@@ -461,8 +461,9 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
 
   def stub_cancellation_response(code, body)
     response = instance_double(Net::HTTPResponse, code: code, body: body)
-    transport = instance_double(Net::HTTP, request: response)
-    allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true).and_yield(transport)
+    transport = instance_double(Net::HTTP, request: response, started?: true, finish: nil)
+    allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true, keep_alive_timeout: 30)
+                                      .and_return(transport)
     transport
   end
 
