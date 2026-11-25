@@ -63,6 +63,13 @@ describe IFDOCOByRangeCommand do
     expect(private_client).not_to have_received(:send_parent_order)
   end
 
+  it 'escapes terminal controls in a ticker rejection message' do
+    allow(private_client).to receive(:ticker).and_return('status' => -1, 'error_message' => "Denied\r\n\e[2J")
+
+    expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, "Ticker error: Denied\\r\\n\\e[2J")
+    expect(private_client).not_to have_received(:send_parent_order)
+  end
+
   it 'rejects an unexpected ticker response' do
     allow(private_client).to receive(:ticker).and_return(nil)
 

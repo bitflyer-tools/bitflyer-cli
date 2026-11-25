@@ -5,6 +5,7 @@ require 'bitflyer/cli/authorization'
 require 'bitflyer/cli/model/position'
 require 'bitflyer/cli/order_rejected'
 require 'bitflyer/cli/persistent_http_client'
+require 'bitflyer/cli/terminal_text'
 
 module HasHTTPClient
   include Authorization
@@ -51,12 +52,16 @@ module HasHTTPClient
   def fetch_ticker(client)
     ticker = client.ticker(product_code: 'FX_BTC_JPY')
     raise TickerError, 'Ticker error: unexpected response' unless ticker.is_a?(Hash)
+    return ticker unless ticker.fetch('status', 0) != 0 || ticker['error_message']
 
-    if ticker.fetch('status', 0) != 0 || ticker['error_message']
-      raise TickerError, "Ticker error: #{ticker['error_message'] || ticker.inspect}"
-    end
+    raise TickerError, "Ticker error: #{ticker_error_detail(ticker)}"
+  end
 
-    ticker
+  def ticker_error_detail(ticker)
+    message = ticker['error_message']
+    return ticker.inspect unless message
+
+    Bitflyer::Cli::TerminalText.escape(message.to_s)
   end
 
   def position_order_size(position)
