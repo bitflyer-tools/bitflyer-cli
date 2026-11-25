@@ -415,7 +415,7 @@ describe StopByRangeCommand, :stop_state do
         end
       end
 
-      it 'prefers an exact match after checking 20 same-side stops with a different size' do
+      it 'fetches only the matching stop detail after 20 same-side stops with a different size' do
         other_stops = (2..21).map do |id|
           parent.merge('id' => id, 'parent_order_id' => "JCO-other-#{id}", 'side' => 'SELL', 'size' => 0.02)
         end
@@ -427,8 +427,20 @@ describe StopByRangeCommand, :stop_state do
           .and_return('order_method' => 'SIMPLE', 'parameters' => [parameters.merge('size' => 0.01)])
 
         expect { run }.to output(/Existing stop order.*JCO-stop/).to_stdout
-        expect(private_client).to have_received(:parent_order).exactly(21).times
+        expect(private_client).to have_received(:parent_order).once
         expect(private_client).to have_received(:parent_order).with(parent_order_id: 'JCO-stop')
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
+      it 'reports conflicts for same-side stops with a different size without fetching their detail' do
+        other_stops = (2..21).map do |id|
+          parent.merge('id' => id, 'parent_order_id' => "JCO-other-#{id}", 'side' => 'SELL', 'size' => 0.02)
+        end
+        stub_responses(private_client, parent_orders: other_stops)
+        ids = other_stops.map { |order| order.fetch('parent_order_id') }
+
+        expect { run }.to raise_error(Thor::Error, "Conflicting active stop orders: #{ids.join(', ')}")
+        expect(private_client).not_to have_received(:parent_order)
         expect(private_client).not_to have_received(:send_parent_order)
       end
 
