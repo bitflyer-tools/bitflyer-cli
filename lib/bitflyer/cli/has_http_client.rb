@@ -55,6 +55,8 @@ module HasHTTPClient
     return ticker unless ticker.fetch('status', 0) != 0 || ticker['error_message']
 
     raise TickerError, "Ticker error: #{ticker_error_detail(ticker)}"
+  rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
+    raise TickerError, "Ticker error: #{e.message}"
   end
 
   def ticker_error_detail(ticker)
@@ -91,5 +93,8 @@ module HasHTTPClient
     raise PositionLookupFailed, "Failed to look up positions: #{positions.inspect}"
   rescue Position::InvalidRowError => e
     raise PositionLookupFailed, "Failed to look up positions: #{e.message}"
+  rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
+    detail = e.api_error if e.respond_to?(:api_error)
+    raise PositionLookupFailed, "Failed to look up positions: #{detail || e.message}"
   end
 end
