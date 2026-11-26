@@ -141,6 +141,24 @@ describe SummaryCommand do
     expect(recovered).not_to include('[stale]')
   end
 
+  it 'keeps polling and marks the snapshot stale after a malformed HTTP header response' do
+    command = described_class.new
+    allow(Thread).to receive(:new).and_yield
+    allow(private_client).to receive(:positions).and_raise(Net::HTTPHeaderSyntaxError, 'malformed header')
+    expect(command).to receive(:sleep).with(5).ordered
+    expect(command).to receive(:sleep).with(5).ordered.and_raise(Interrupt)
+
+    capture_stdout { command.run }
+
+    opening_executions << [{ 'price' => 1_000_000 }]
+    refresh = -> { refresh_account(command, price: 1_000_000, size: 0.2, collateral: 60_000) }
+    stale, recovered = capture_stdout { run_iterations(command, refresh) }.split("\e[4F\e[0J").drop(1)
+
+    expect(stale).to include('Current:  1,000,000', 'Position: 1,000,000 * 0.1', 'Balance:  50,000', '[stale]')
+    expect(recovered).to include('Position: 1,000,000 * 0.2', 'Balance:  60,000')
+    expect(recovered).not_to include('[stale]')
+  end
+
   it 'loads the account once at startup and waits five seconds between refreshes' do
     expect(private_client).to receive(:positions).ordered
     expect(private_client).to receive(:collateral).ordered
