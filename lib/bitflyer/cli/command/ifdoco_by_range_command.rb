@@ -14,13 +14,16 @@ class IFDOCOByRangeCommand
     range = options.range.to_f
     validate_inputs!(side: side, range: range, ratio: ratio)
 
-    current_price = fetch_ticker_price('ltp')
+    dry_run = options[:dry_run]
+    current_price = fetch_ticker_price('ltp', client: dry_run ? http_public_client : persistent_http_client)
     profit_price, loss_price = exit_prices(side: side, current_price: current_price, range: range, ratio: ratio)
     request = request(side: side, size: size, profit_price: profit_price, loss_price: loss_price)
-    return print_preview(current_price, request.fetch(:parameters)) if options[:dry_run]
+    return print_preview(current_price, request.fetch(:parameters)) if dry_run
 
     submit_single_order('parent_order_acceptance_id') { |client| client.send_parent_order(**request) }
     print_confirmation(request.fetch(:parameters))
+  ensure
+    close_persistent_http_client
   end
 
   private

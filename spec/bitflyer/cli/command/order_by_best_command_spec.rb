@@ -1,12 +1,11 @@
 require 'spec_helper'
 
 describe OrderByBestCommand do
-  let!(:public_client) { stub_public_client }
   let!(:private_client) { stub_persistent_client }
   let(:response) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' } }
 
   before do
-    stub_responses(public_client, ticker: { 'best_bid' => 1_000_000, 'best_ask' => 1_000_100 })
+    allow(private_client).to receive(:ticker).and_return({ 'best_bid' => 1_000_000, 'best_ask' => 1_000_100 })
     submission = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, response)
     stub_responses(private_client, send_child_order: submission)
   end
@@ -18,7 +17,7 @@ describe OrderByBestCommand do
   [Float::INFINITY, -Float::INFINITY, Float::NAN].each do |amount|
     it "rejects a non-finite amount of #{amount}" do
       expect { run('buy', amount: amount) }.to raise_error(Thor::Error, 'Amount must be positive and finite.')
-      expect(public_client).not_to have_received(:ticker)
+      expect(private_client).not_to have_received(:ticker)
       expect(private_client).not_to have_received(:send_child_order)
     end
   end
@@ -46,21 +45,37 @@ describe OrderByBestCommand do
 
   it 'rejects an invalid side before reading the ticker or submitting an order' do
     expect { run('hold') }.to raise_error(Thor::Error, 'Order type must be buy or sell')
-    expect(public_client).not_to have_received(:ticker)
+    expect(private_client).not_to have_received(:ticker)
     expect(private_client).not_to have_received(:send_child_order)
   end
 
   it 'reads the FX_BTC_JPY ticker' do
     expect { run('buy') }.to output.to_stdout
-    expect(public_client).to have_received(:ticker).with(product_code: 'FX_BTC_JPY')
+    expect(private_client).to have_received(:ticker).with(product_code: 'FX_BTC_JPY')
   end
 
   it 'reports a ticker rejection before submitting a limit order' do
-    stub_responses(public_client, ticker: {
-                     'status' => -1, 'error_message' => 'Ticker unavailable', 'best_bid' => 1_000_000
-                   })
+    allow(private_client).to receive(:ticker).and_return(
+      'status' => -1, 'error_message' => 'Ticker unavailable', 'best_bid' => 1_000_000
+    )
 
     expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, 'Ticker error: Ticker unavailable')
+    expect(private_client).not_to have_received(:send_child_order)
+  end
+
+  it 'escapes terminal controls in a ticker rejection message' do
+    allow(private_client).to receive(:ticker).and_return(
+      'status' => -1, 'error_message' => "Denied\r\n\e[2J", 'best_bid' => 1_000_000
+    )
+
+    expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, "Ticker error: Denied\\r\\n\\e[2J")
+    expect(private_client).not_to have_received(:send_child_order)
+  end
+
+  it 'reports a clean error instead of crashing on a transient ticker lookup failure' do
+    allow(private_client).to receive(:ticker).and_raise(SocketError, 'getaddrinfo failed')
+
+    expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, 'Ticker error: getaddrinfo failed')
     expect(private_client).not_to have_received(:send_child_order)
   end
 
@@ -68,7 +83,7 @@ describe OrderByBestCommand do
     it "requires #{field} for a #{side} limit order" do
       ticker = { 'best_bid' => 1_000_000, 'best_ask' => 1_000_100 }
       ticker.delete(field)
-      stub_responses(public_client, ticker: ticker)
+      allow(private_client).to receive(:ticker).and_return(ticker)
 
       expect { run(side) }.to raise_error(HasHTTPClient::TickerError, /Ticker error: #{field}/)
       expect(private_client).not_to have_received(:send_child_order)

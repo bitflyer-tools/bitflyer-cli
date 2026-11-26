@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'bitflyer/cli/terminal_text'
+
 module Bitflyer
   module Cli
     class OrderRejected < StandardError
@@ -45,7 +47,7 @@ module Bitflyer
 
       def self.raise_rejection!(response)
         message = response['error_message'].to_s
-        raise self, message.empty? ? "Order rejected: #{response.inspect}" : message
+        raise self, message.empty? ? "Order rejected: #{response.inspect}" : TerminalText.escape(message)
       end
 
       def self.valid_acceptance?(acceptance_id, body)
