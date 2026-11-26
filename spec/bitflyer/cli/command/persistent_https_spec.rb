@@ -123,6 +123,52 @@ describe 'Persistent exchange HTTPS' do
     end
   end
 
+  context 'when placing a price-based order' do
+    let(:ticker_path) { '/v1/ticker?product_code=FX_BTC_JPY' }
+    let(:parent_order_path) { '/v1/me/sendparentorder' }
+    let(:parent_acceptance) { { 'parent_order_acceptance_id' => 'JRF20180101-000000-000001' } }
+
+    it 'reads the ticker and submits a limit order on one TLS connection, signing only the order' do
+      start_server { |_path, number| number == 1 ? [{ best_bid: 999_000, best_ask: 1_000_000 }, false] : [acceptance, false] }
+
+      expect { Bitflyer::Cli::Runner.start(%w[order_by_best -a 0.01 -t buy]) }
+        .to output(/An order is created buy \/ 999000/).to_stdout
+
+      expect(closed_connection).to eq(1)
+      expect(@server.requests.map { |id, method, path| [id, method, path] })
+        .to eq([[1, 'GET', ticker_path], [1, 'POST', order_path]])
+      expect_unsigned_request(@server.requests[0])
+      expect_signed_request(@server.requests[1])
+    end
+
+    it 'reads the ticker and submits an IFDOCO order on one TLS connection, signing only the order' do
+      start_server { |_path, number| number == 1 ? [{ ltp: 1_000_000 }, false] : [parent_acceptance, false] }
+
+      expect { Bitflyer::Cli::Runner.start(%w[ifdoco_by_range -a 0.01 -t buy -r 10000 -p 60]) }
+        .to output(/Send market order BUY/).to_stdout
+
+      expect(closed_connection).to eq(1)
+      expect(@server.requests.map { |id, method, path| [id, method, path] })
+        .to eq([[1, 'GET', ticker_path], [1, 'POST', parent_order_path]])
+      expect_unsigned_request(@server.requests[0])
+      expect_signed_request(@server.requests[1])
+    end
+
+    it 'sends only the ticker GET for an IFDOCO dry run without credentials' do
+      allow(ENV).to receive(:fetch).and_call_original
+      allow(ENV).to receive(:fetch).with('BITFLYER_API_KEY', nil).and_return(nil)
+      allow(ENV).to receive(:fetch).with('BITFLYER_API_SECRET', nil).and_return(nil)
+      start_server { [{ ltp: 1_000_000 }, false] }
+
+      expect { Bitflyer::Cli::Runner.start(%w[ifdoco_by_range -a 0.01 -t buy -r 10000 -p 60 --dry-run]) }
+        .to output(/IFDOCO dry run/).to_stdout
+
+      expect(closed_connection).to eq(1)
+      expect(@server.requests.map { |id, method, path| [id, method, path] }).to eq([[1, 'GET', ticker_path]])
+      expect_unsigned_request(@server.requests[0])
+    end
+  end
+
   context 'when looking up a protective stop', :stop_state do
     let(:position_rows) { [position(side: 'BUY', price: 1_000_000, size: 0.1)] }
     let(:parent_orders) do
@@ -371,10 +417,18 @@ describe 'Persistent exchange HTTPS' do
   end
 
   def expect_signed_requests
-    @server.requests.each do |_, method, path, headers, body|
-      signed_data = headers.fetch('access-timestamp') + method + path + body
-      expect(headers.fetch('access-key')).to eq('key')
-      expect(headers.fetch('access-sign')).to eq(OpenSSL::HMAC.hexdigest('sha256', 'secret', signed_data))
-    end
+    @server.requests.each { |request| expect_signed_request(request) }
+  end
+
+  def expect_signed_request(request)
+    _, method, path, headers, body = request
+    signed_data = headers.fetch('access-timestamp') + method + path + body
+    expect(headers.fetch('access-key')).to eq('key')
+    expect(headers.fetch('access-sign')).to eq(OpenSSL::HMAC.hexdigest('sha256', 'secret', signed_data))
+  end
+
+  def expect_unsigned_request(request)
+    _, _, _, headers, = request
+    expect(headers.keys).not_to include('access-key', 'access-timestamp', 'access-sign')
   end
 end

@@ -50,6 +50,26 @@ describe SummaryCommand do
     end
   end
 
+  context 'when a communication error interrupts the initial collateral lookup' do
+    {
+      'a socket error' => [SocketError, 'getaddrinfo failed'],
+      'a timeout' => [Timeout::Error, 'execution expired'],
+      'an HTTP 5xx response' => [Net::HTTPBadResponse, 'HTTP request failed (status 500)']
+    }.each do |description, (error_class, message)|
+      context "with #{description}" do
+        it 'reports a clean startup error instead of crashing' do
+          allow(private_client).to receive(:collateral).and_raise(error_class, message)
+          expect(Thread).not_to receive(:new)
+          expect(Bitflyer::Cli::RealtimeClient).not_to receive(:new)
+
+          expect { described_class.new.run }
+            .to raise_error(HasHTTPClient::AccountLookupFailed, /Failed to look up account:.*#{Regexp.escape(message)}/)
+          expect(private_client).to have_received(:close).once
+        end
+      end
+    end
+  end
+
   context 'without any position' do
     let(:positions) { [] }
 

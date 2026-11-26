@@ -5,6 +5,7 @@ require 'bitflyer/cli/authorization'
 require 'bitflyer/cli/model/position'
 require 'bitflyer/cli/order_rejected'
 require 'bitflyer/cli/persistent_http_client'
+require 'bitflyer/cli/terminal_text'
 
 module HasHTTPClient
   include Authorization
@@ -41,22 +42,28 @@ module HasHTTPClient
     close_persistent_http_client
   end
 
-  def fetch_ticker_price(field)
-    price = fetch_ticker[field]
+  def fetch_ticker_price(field, client:)
+    price = fetch_ticker(client)[field]
     return price if (price.is_a?(Integer) || price.is_a?(Float)) && price.finite? && price.positive?
 
     raise TickerError, "Ticker error: #{field} must be a positive, finite number"
   end
 
-  def fetch_ticker
-    ticker = http_public_client.ticker(product_code: 'FX_BTC_JPY')
+  def fetch_ticker(client)
+    ticker = client.ticker(product_code: 'FX_BTC_JPY')
     raise TickerError, 'Ticker error: unexpected response' unless ticker.is_a?(Hash)
+    return ticker unless ticker.fetch('status', 0) != 0 || ticker['error_message']
 
-    if ticker.fetch('status', 0) != 0 || ticker['error_message']
-      raise TickerError, "Ticker error: #{ticker['error_message'] || ticker.inspect}"
-    end
+    raise TickerError, "Ticker error: #{ticker_error_detail(ticker)}"
+  rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
+    raise TickerError, "Ticker error: #{e.message}"
+  end
 
-    ticker
+  def ticker_error_detail(ticker)
+    message = ticker['error_message']
+    return ticker.inspect unless message
+
+    Bitflyer::Cli::TerminalText.escape(message.to_s)
   end
 
   def position_order_size(position)
@@ -86,5 +93,8 @@ module HasHTTPClient
     raise PositionLookupFailed, "Failed to look up positions: #{positions.inspect}"
   rescue Position::InvalidRowError => e
     raise PositionLookupFailed, "Failed to look up positions: #{e.message}"
+  rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
+    detail = e.api_error if e.respond_to?(:api_error)
+    raise PositionLookupFailed, "Failed to look up positions: #{detail || e.message}"
   end
 end

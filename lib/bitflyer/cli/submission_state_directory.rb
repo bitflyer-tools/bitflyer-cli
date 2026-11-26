@@ -6,6 +6,21 @@ require 'thor'
 module Bitflyer
   module Cli
     module SubmissionStateDirectory
+      def self.under(*segments)
+        root = ENV.fetch('XDG_STATE_HOME', nil)
+        root = File.expand_path('~/.local/state') if root.to_s.empty?
+        File.join(root, 'bitflyer-cli', *segments)
+      end
+
+      def self.synchronize(path, lock_path, unavailable_message)
+        prepare(File.dirname(path))
+        File.open(lock_path, File::RDWR | File::CREAT | File::NOFOLLOW, 0o600) do |lock|
+          raise IOError, unavailable_message unless lock.flock(File::LOCK_EX)
+
+          yield
+        end
+      end
+
       def self.prepare(directory)
         raise Thor::Error, "Unsafe submission state directory: #{directory}" if directory.split('/').include?('..')
 

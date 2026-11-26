@@ -73,6 +73,59 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       end.to output(/Could not verify active protective stops.*-200/).to_stderr
       expect(private_client).not_to have_received(:send_child_order)
     end
+
+    it 'escapes terminal controls in the conflicting stop ID and exits without submitting an order' do
+      stop = { 'parent_order_id' => "JCO\r\n\e[2J", 'parent_order_type' => 'STOP', 'side' => 'SELL', 'size' => 0.2 }
+      stub_responses(private_client, parent_orders: [stop])
+
+      expect do
+        expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Active protective stop (JCO\\r\\n\\e[2J) conflicts with the counter trade.\n").to_stderr
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+
+    it 'escapes terminal controls in the parent order ID for an unverifiable active order' do
+      stop = { 'parent_order_id' => "JCO\r\n\e[2J", 'parent_order_type' => 'STOP', 'side' => nil, 'size' => 0.2 }
+      stub_responses(private_client, parent_orders: [stop])
+
+      expect do
+        expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not verify active parent order (JCO\\r\\n\\e[2J).\n").to_stderr
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+  end
+
+  context 'when checking active stops before placing a protective stop' do
+    let(:private_client) { stub_persistent_client }
+
+    before do
+      positions = [position(side: 'BUY', price: 1_000_000, size: 0.2)]
+      stub_responses(private_client, positions: positions, send_parent_order: nil)
+    end
+
+    it 'escapes terminal controls in an existing stop order ID' do
+      stop = { 'parent_order_id' => "JCO\r\n\e[2J", 'parent_order_type' => 'STOP', 'side' => 'SELL', 'size' => 0.2 }
+      stub_responses(private_client, parent_orders: [stop])
+      detail = { 'order_method' => 'SIMPLE',
+                 'parameters' => [{ 'product_code' => 'FX_BTC_JPY', 'condition_type' => 'STOP', 'side' => 'SELL',
+                                    'trigger_price' => 995_000, 'size' => 0.2 }] }
+      allow(private_client).to receive(:parent_order).and_return(detail)
+
+      expect { run_cli('stop_by_range', '--range=5000') }
+        .to output("Existing stop order SELL / 995000.0 / 0.2 (JCO\\r\\n\\e[2J)\n").to_stdout
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+
+    it 'escapes terminal controls in conflicting stop order IDs and exits without submitting an order' do
+      stop = { 'parent_order_id' => "JCO\r\n\e[2J", 'parent_order_type' => 'STOP', 'side' => 'SELL', 'size' => 0.05 }
+      stub_responses(private_client, parent_orders: [stop])
+
+      expect do
+        expect { run_cli('stop_by_range', '--range=5000') }
+          .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Conflicting active stop orders: JCO\\r\\n\\e[2J\n").to_stderr
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
   end
 
   {
@@ -124,14 +177,26 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
   end
 
   it 'prints a ticker rejection to stderr and exits unsuccessfully without placing an order' do
-    public_client = stub_public_client
-    stub_responses(public_client, ticker: { 'status' => -1, 'error_message' => 'Ticker unavailable' })
-    stub_responses(private_client, send_child_order: {})
+    private_client = stub_persistent_client
+    allow(private_client).to receive(:ticker).and_return('status' => -1, 'error_message' => 'Ticker unavailable')
+    allow(private_client).to receive(:send_child_order)
 
     expect do
       expect { run_cli('order_by_best', '--amount=0.01', '--type=buy') }
         .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("Ticker error: Ticker unavailable\n").to_stderr
+    expect(private_client).not_to have_received(:send_child_order)
+  end
+
+  it 'escapes terminal controls in the ticker rejection diagnostic on stderr' do
+    private_client = stub_persistent_client
+    allow(private_client).to receive(:ticker).and_return('status' => -1, 'error_message' => "Denied\r\n\e[2J")
+    allow(private_client).to receive(:send_child_order)
+
+    expect do
+      expect { run_cli('order_by_best', '--amount=0.01', '--type=buy') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Ticker error: Denied\\r\\n\\e[2J\n").to_stderr.and output('').to_stdout
     expect(private_client).not_to have_received(:send_child_order)
   end
 
@@ -142,6 +207,25 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     expect do
       expect { run_cli('cancel_all') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end.to output("rejected\n").to_stderr
+  end
+
+  it 'escapes terminal controls in the cancel-all rejection diagnostic on stderr' do
+    stub_credentials
+    stub_cancellation_response('400', JSON.generate(status: -200, error_message: "Denied\r\n\e[2J"))
+
+    expect do
+      expect { run_cli('cancel_all') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Denied\\r\\n\\e[2J\n").to_stderr.and output('').to_stdout
+  end
+
+  it 'escapes terminal controls in the cancel-order rejection diagnostic on stderr' do
+    stub_credentials
+    stub_cancellation_response('400', JSON.generate(status: -200, error_message: "Denied\r\n\e[2J"))
+
+    expect do
+      expect { run_cli('cancel_order', 'child', 'JOR-order') }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output("Cancellation request rejected. Denied\\r\\n\\e[2J\n").to_stderr.and output('').to_stdout
   end
 
   it 'reports a malformed cancel-all response as unverified without retrying' do
@@ -430,8 +514,9 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
 
   def stub_cancellation_response(code, body)
     response = instance_double(Net::HTTPResponse, code: code, body: body)
-    transport = instance_double(Net::HTTP, request: response)
-    allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true).and_yield(transport)
+    transport = instance_double(Net::HTTP, request: response, started?: true, finish: nil)
+    allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true, keep_alive_timeout: 30)
+                                      .and_return(transport)
     transport
   end
 
@@ -658,6 +743,16 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       expect(transport).to have_received(:request)
         .with(an_object_having_attributes(path: '/v1/me/sendchildorder')).once
     end
+
+    it 'requires manual reconciliation when the order is absent from a successful empty lookup' do
+      stub_order_lookup(order_response(200, []))
+
+      expect do
+        expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/#{Regexp.escape(acceptance_id)}.*absent from the order history lookup.*Record:/m).to_stderr
+      expect(transport).to have_received(:request)
+        .with(an_object_having_attributes(path: '/v1/me/sendchildorder')).once
+    end
   end
 
   context 'when submitting a protective stop' do
@@ -802,9 +897,9 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
 
       before do
         stub_credentials
-        public_client = instance_double(Bitflyer::HTTP::Public::Client, ticker: { 'best_bid' => 1_000_000, 'ltp' => 1_000_000 })
-        allow(Bitflyer).to receive(:http_public_client).and_return(public_client)
-        allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true).and_yield(transport)
+        ticker_response = instance_double(Net::HTTPResponse, code: '200',
+                                                               body: JSON.generate(best_bid: 1_000_000, ltp: 1_000_000))
+        allow(transport).to receive(:request).with(instance_of(Net::HTTP::Get)).and_return(ticker_response)
         allow(Net::HTTP).to receive(:start).with('api.bitflyer.jp', 443, use_ssl: true, keep_alive_timeout: 30)
                                          .and_return(transport)
       end
@@ -814,15 +909,18 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
         allow(transport).to receive(:request).with(instance_of(Net::HTTP::Post)).and_return(response)
       end
 
+      def expect_single_submission(path)
+        expect(transport).to have_received(:request).with(instance_of(Net::HTTP::Get)).once
+        expect(transport).to have_received(:request).with(having_attributes(path: path)).once
+      end
+
       it 'reports HTTP 503 with an acceptance ID as unverified without retrying' do
         stub_placement_response('503', "#{order_type}_order_acceptance_id" => 'accepted')
 
         expect do
           expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
         end.to output("Could not verify order acceptance (HTTP 503).\n").to_stderr.and output('').to_stdout
-        expect(transport).to have_received(:request).once do |request|
-          expect(request.path).to eq("/v1/me/send#{order_type}order")
-        end
+        expect_single_submission("/v1/me/send#{order_type}order")
         expect(transport).to have_received(:finish).once
       end
 
@@ -832,7 +930,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
         expect do
           expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
         end.to output(/Could not verify order acceptance: .*status 503/).to_stderr.and output('').to_stdout
-        expect(transport).to have_received(:request).once
+        expect_single_submission("/v1/me/send#{order_type}order")
       end
 
       it 'reports an explicit HTTP 400 exchange rejection' do
@@ -841,14 +939,23 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
         expect do
           expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
         end.to output("Insufficient margin\n").to_stderr.and output('').to_stdout
-        expect(transport).to have_received(:request).once
+        expect_single_submission("/v1/me/send#{order_type}order")
+      end
+
+      it 'escapes terminal controls in the order rejection diagnostic on stderr' do
+        stub_placement_response('400', 'status' => -205, 'error_message' => "Denied\r\n\e[2J")
+
+        expect do
+          expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+        end.to output("Denied\\r\\n\\e[2J\n").to_stderr.and output('').to_stdout
+        expect_single_submission("/v1/me/send#{order_type}order")
       end
 
       it 'confirms placement for HTTP 201 with a valid acceptance ID' do
         stub_placement_response('201', "#{order_type}_order_acceptance_id" => 'accepted')
 
         expect { run_cli(*args) }.to output('').to_stderr.and output(confirmation).to_stdout
-        expect(transport).to have_received(:request).once
+        expect_single_submission("/v1/me/send#{order_type}order")
         expect(transport).to have_received(:finish).once
       end
     end
@@ -870,7 +977,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       before do
         positions = [position(side: 'BUY', price: 1_000_000, size: 0.1)]
         stub_responses(private_client, positions: positions, parent_orders: [])
-        stub_responses(stub_public_client, ticker: { 'best_bid' => 1_000_000, 'ltp' => 1_000_000 })
+        allow(private_client).to receive(:ticker).and_return('best_bid' => 1_000_000, 'ltp' => 1_000_000)
       end
 
       it 'prints the exchange rejection to stderr and exits unsuccessfully' do
