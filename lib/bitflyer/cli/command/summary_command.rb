@@ -139,7 +139,7 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
 
     position, balance = @account_snapshot
     price = fresh_price
-    @alert_notifier.check(price: price, balance: price && balance + position.profit(price))
+    @alert_notifier.check(price: price, balance: price && (balance + position.profit(price)))
   end
 
   def update_balance

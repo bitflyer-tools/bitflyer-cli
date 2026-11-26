@@ -29,7 +29,9 @@ module Bitflyer
         return unless @alert_price && price
 
         side = price >= @alert_price ? :above : :below
-        notify("Price alert: #{price} crossed #{@alert_price}") if @price_side && side != @price_side
+        @price_home_side ||= side
+        departing_home = @price_side == @price_home_side && side != @price_home_side
+        notify("Price alert: #{price} crossed #{@alert_price}") if departing_home
         @price_side = side
       end
 
