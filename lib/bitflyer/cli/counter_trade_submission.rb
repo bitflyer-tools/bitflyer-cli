@@ -9,6 +9,8 @@ require 'bitflyer/cli/submission_state_directory'
 module Bitflyer
   module Cli
     class CounterTradeSubmission
+      attr_reader :path
+
       def self.state_directory
         SubmissionStateDirectory.under('counter-trades')
       end
