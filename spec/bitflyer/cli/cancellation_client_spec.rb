@@ -13,4 +13,32 @@ describe CancellationClient do
     expect(result).to eq(described_class::Result.new(:unverified, nil, nil, nil))
     expect(client).to have_received(:close)
   end
+
+  describe CancellationClient::Result do
+    describe '#failure_message' do
+      it 'returns the exchange message when the result is rejected with a message' do
+        result = described_class.new(:rejected, '200', -205, 'Order not found.')
+
+        expect(result.failure_message('unverified', 'fallback')).to eq('Order not found.')
+      end
+
+      it 'returns the fallback text when the result is rejected without a message' do
+        result = described_class.new(:rejected, '200', -205, '')
+
+        expect(result.failure_message('unverified', 'fallback')).to eq('fallback')
+      end
+
+      it 'includes the HTTP status when the result is unverified with any HTTP code' do
+        result = described_class.new(:unverified, '404', nil, nil)
+
+        expect(result.failure_message('unverified', 'fallback')).to eq('unverified (HTTP 404).')
+      end
+
+      it 'omits the HTTP status when the result is unverified without an HTTP code' do
+        result = described_class.new(:unverified, nil, nil, nil)
+
+        expect(result.failure_message('unverified', 'fallback')).to eq('unverified.')
+      end
+    end
+  end
 end

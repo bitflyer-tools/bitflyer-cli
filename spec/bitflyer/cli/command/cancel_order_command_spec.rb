@@ -54,7 +54,7 @@ describe CancelOrderCommand do
     allow(CancellationClient).to receive(:new).with('key', 'secret').and_return(client)
 
     expect { described_class.new.run('child', 'JOR1') }.to raise_error(
-      described_class::Failed, 'Cancellation request rejected. Order not found.'
+      described_class::Failed, 'Order not found.'
     )
   end
 
@@ -75,6 +75,16 @@ describe CancelOrderCommand do
 
     expect { described_class.new.run('child', 'JOR1') }.to raise_error(
       described_class::Failed, 'Could not verify cancellation acceptance from bitFlyer (HTTP 408).'
+    )
+  end
+
+  it 'includes the HTTP status for an unverified result with a non-408/5xx code' do
+    result = CancellationClient::Result.new(:unverified, '404', nil, nil)
+    client = instance_double(CancellationClient, post: result)
+    allow(CancellationClient).to receive(:new).with('key', 'secret').and_return(client)
+
+    expect { described_class.new.run('child', 'JOR1') }.to raise_error(
+      described_class::Failed, 'Could not verify cancellation acceptance from bitFlyer (HTTP 404).'
     )
   end
 end

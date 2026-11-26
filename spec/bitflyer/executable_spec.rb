@@ -172,7 +172,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     expect do
       expect { run_cli('cancel_order', 'child', 'JOR-order') }
         .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-    end.to output("Cancellation request rejected. Denied\\r\\n\\e[2J\n").to_stderr.and output('').to_stdout
+    end.to output("Denied\\r\\n\\e[2J\n").to_stderr.and output('').to_stdout
   end
 
   it 'reports a malformed cancel-all response as unverified without retrying' do
@@ -472,12 +472,12 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
     ['400', '{"status":-200}', 'Cancel-all request rejected (status -200)',
      'Cancellation request rejected (status -200).'],
     ['400', '{"status":-200,"error_message":"Order is inactive."}', 'Order is inactive.',
-     'Cancellation request rejected. Order is inactive.'],
+     'Order is inactive.'],
     ['400', '{"error_message":"unexpected reply"}', 'Could not verify cancel-all acceptance from bitFlyer (HTTP 400).',
-     'Could not verify cancellation acceptance from bitFlyer.'],
+     'Could not verify cancellation acceptance from bitFlyer (HTTP 400).'],
     ['400', '{"status":-200.0,"error_message":"unexpected reply"}',
      'Could not verify cancel-all acceptance from bitFlyer (HTTP 400).',
-     'Could not verify cancellation acceptance from bitFlyer.'],
+     'Could not verify cancellation acceptance from bitFlyer (HTTP 400).'],
     ['408', '{"status":-200}', 'Could not verify cancel-all acceptance from bitFlyer (HTTP 408).',
      'Could not verify cancellation acceptance from bitFlyer (HTTP 408).'],
     ['503', '{"status":-200,"error_message":"Service unavailable."}',
@@ -556,7 +556,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
 
     expect do
       expect { run_cli('cancel_order', 'child', 'JOR-order') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-    end.to output("Cancellation request rejected. Order is no longer active.\n").to_stderr
+    end.to output("Order is no longer active.\n").to_stderr
   end
 
   it 'reports the exchange status when a cancellation rejection has no message' do
@@ -577,7 +577,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       expect do
         expect { run_cli('cancel_order', 'child', 'JOR-order') }
           .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-      end.to output("Could not verify cancellation acceptance from bitFlyer.\n").to_stderr
+      end.to output("Could not verify cancellation acceptance from bitFlyer (HTTP 400).\n").to_stderr
     end
   end
 
@@ -621,7 +621,7 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
 
     expect do
       expect { run_cli('cancel_order', 'child', 'JOR-order') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-    end.to output("Could not verify cancellation acceptance from bitFlyer.\n").to_stderr
+    end.to output("Could not verify cancellation acceptance from bitFlyer (HTTP 200).\n").to_stderr
   end
 
   it 'preserves a malformed counter trade record and exits before contacting bitFlyer' do
