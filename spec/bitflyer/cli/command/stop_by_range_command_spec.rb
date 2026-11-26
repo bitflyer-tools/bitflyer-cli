@@ -50,6 +50,17 @@ describe StopByRangeCommand, :stop_state do
     end
   end
 
+  context 'when a communication error interrupts the position lookup' do
+    it 'reports a clean error instead of crashing' do
+      allow(private_client).to receive(:positions).and_raise(SocketError, 'getaddrinfo failed')
+      expect(Position).not_to receive(:new)
+
+      expect { run }
+        .to raise_error(HasHTTPClient::PositionLookupFailed, /Failed to look up positions:.*getaddrinfo failed/)
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+  end
+
   context 'with a long position' do
     let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.2)] }
 

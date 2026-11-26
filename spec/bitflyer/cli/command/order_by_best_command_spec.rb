@@ -72,6 +72,13 @@ describe OrderByBestCommand do
     expect(private_client).not_to have_received(:send_child_order)
   end
 
+  it 'reports a clean error instead of crashing on a transient ticker lookup failure' do
+    allow(private_client).to receive(:ticker).and_raise(SocketError, 'getaddrinfo failed')
+
+    expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, 'Ticker error: getaddrinfo failed')
+    expect(private_client).not_to have_received(:send_child_order)
+  end
+
   { 'buy' => 'best_bid', 'sell' => 'best_ask' }.each do |side, field|
     it "requires #{field} for a #{side} limit order" do
       ticker = { 'best_bid' => 1_000_000, 'best_ask' => 1_000_100 }

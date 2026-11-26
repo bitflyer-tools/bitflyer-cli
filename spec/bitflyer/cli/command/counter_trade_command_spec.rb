@@ -69,6 +69,17 @@ describe CounterTradeCommand, :counter_trade_state do
     end
   end
 
+  context 'when a communication error interrupts the position lookup' do
+    it 'reports a clean error instead of crashing' do
+      allow(private_client).to receive(:positions).and_raise(SocketError, 'getaddrinfo failed')
+      expect(Position).not_to receive(:new)
+
+      expect { described_class.new.run }
+        .to raise_error(HasHTTPClient::PositionLookupFailed, /Failed to look up positions:.*getaddrinfo failed/)
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+  end
+
   context 'with no positions' do
     let(:positions) { [] }
 
