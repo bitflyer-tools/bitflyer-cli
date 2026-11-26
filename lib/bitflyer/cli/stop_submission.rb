@@ -37,8 +37,8 @@ module Bitflyer
         @lock_path = File.join(directory, "slot-#{key.to_i(16) % LOCK_COUNT}.lock")
       end
 
-      def synchronize(&block)
-        SubmissionStateDirectory.synchronize(@path, @lock_path, "Could not lock stop submission: #{@path}", &block)
+      def synchronize(&)
+        SubmissionStateDirectory.synchronize(@path, @lock_path, "Could not lock stop submission: #{@path}", &)
       end
 
       def pending

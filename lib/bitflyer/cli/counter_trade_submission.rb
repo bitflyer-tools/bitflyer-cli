@@ -18,8 +18,8 @@ module Bitflyer
         @credential = Digest::SHA256.hexdigest(api_key.to_s)
       end
 
-      def synchronize(&block)
-        SubmissionStateDirectory.synchronize(@path, "#{@path}.lock", "Could not lock counter trade: #{@path}", &block)
+      def synchronize(&)
+        SubmissionStateDirectory.synchronize(@path, "#{@path}.lock", "Could not lock counter trade: #{@path}", &)
       end
 
       def pending
