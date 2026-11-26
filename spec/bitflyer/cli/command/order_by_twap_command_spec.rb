@@ -16,12 +16,12 @@ describe OrderByTWAPCommand do
     allow(private_client).to receive(:send_child_order) do
       submission_times << now
       now += request_durations.fetch(submission_times.length - 1)
-      response
+      Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, response)
     end
   end
 
-  def run(interval: 10, amount: 0.01)
-    command.run(thor_options(amount: amount, type: 'buy', number_of_times: number_of_times, interval: interval))
+  def run(interval: 10, amount: 0.01, type: 'buy')
+    command.run(thor_options(amount: amount, type: type, number_of_times: number_of_times, interval: interval))
   end
 
   [Float::INFINITY, -Float::INFINITY, Float::NAN].each do |amount|
@@ -39,6 +39,14 @@ describe OrderByTWAPCommand do
       .with(product_code: 'FX_BTC_JPY', child_order_type: 'MARKET', side: 'BUY', size: 0.01).exactly(3).times
   end
 
+  { 'bUy' => 'BUY', 'sElL' => 'SELL' }.each do |type, side|
+    it "uses #{side} for every order when the type is #{type}" do
+      expect { run(type: type) }.to output.to_stdout
+      expect(private_client).to have_received(:send_child_order)
+        .with(product_code: 'FX_BTC_JPY', child_order_type: 'MARKET', side: side, size: 0.01).exactly(3).times
+    end
+  end
+
   it 'keeps the submission cadence despite request latency' do
     expect { run }.to output.to_stdout
     expect(submission_times).to eq([0, 10, 20])
@@ -46,9 +54,37 @@ describe OrderByTWAPCommand do
     expect(command).to have_received(:sleep).twice
   end
 
-  it 'rejects a negative interval before submitting any orders' do
-    expect { run(interval: -1) }.to raise_error(Thor::MalformattedArgumentError, 'Invalid interval: --interval must be non-negative.')
-    expect(private_client).not_to have_received(:send_child_order)
+  it 'submits every order without waiting when the interval is zero' do
+    expect { run(interval: 0) }.to output(/3 accepted/).to_stdout
+    expect(submission_times).to eq([0, 2, 4])
+    expect(command).not_to have_received(:sleep)
+  end
+
+  it 'reports the remaining slices as unattempted when a wait is interrupted' do
+    allow(command).to receive(:sleep).and_raise(Interrupt)
+
+    expect do
+      expect { run }.to raise_error(Interrupt)
+    end.to output(/1 accepted, 0 rejected, 0 unverified, 2 unattempted\./).to_stdout
+
+    expect(private_client).to have_received(:send_child_order).once
+    expect(private_client).to have_received(:close).once
+  end
+
+  it 'reports the interrupted submission as unverified and stops the schedule' do
+    allow(private_client).to receive(:send_child_order) do
+      raise Interrupt unless submission_times.empty?
+
+      submission_times << 0
+      Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, response)
+    end
+
+    expect do
+      expect { run }.to raise_error(Interrupt)
+    end.to output(/1 accepted, 0 rejected, 1 unverified, 1 unattempted\./).to_stdout
+
+    expect(private_client).to have_received(:send_child_order).twice
+    expect(private_client).to have_received(:close).once
   end
 
   context 'when a request misses several submission deadlines' do
@@ -79,6 +115,27 @@ describe OrderByTWAPCommand do
 
     it 'prints the response without waiting' do
       expect { run }.to output(/#{response.fetch('child_order_acceptance_id')}/).to_stdout
+      expect(private_client).to have_received(:send_child_order).once
+      expect(command).not_to have_received(:sleep)
+    end
+  end
+
+  context 'when the exchange status is a negative fraction' do
+    let(:number_of_times) { 2 }
+    let(:response) { { 'status' => -1.5 } }
+
+    it 'reports unverified acceptance and stops before the next slice' do
+      expect { run }.to output(/0 accepted, 0 rejected, 1 unverified, 1 unattempted/).to_stdout
+      expect(private_client).to have_received(:send_child_order).once
+      expect(command).not_to have_received(:sleep)
+    end
+  end
+
+  context 'when the acceptance ID is a non-breaking space' do
+    let(:response) { { 'child_order_acceptance_id' => "\u00A0" } }
+
+    it 'reports the first slice as unverified and stops the schedule' do
+      expect { run }.to output(/0 accepted, 0 rejected, 1 unverified, 2 unattempted/).to_stdout
       expect(private_client).to have_received(:send_child_order).once
       expect(command).not_to have_received(:sleep)
     end

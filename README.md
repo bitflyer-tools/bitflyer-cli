@@ -10,6 +10,15 @@ bitflyer-cli is a command-line tool for the BTC-CFD/JPY market on
 [bitFlyer Crypto CFD](https://lightning.bitflyer.com/docs?lang=en#api-documentation).
 This market uses `FX_BTC_JPY` as its API product code.
 
+## Features
+
+- Monitor the live execution price, net position, and estimated account balance.
+- Review active orders and recent fills, and request order cancellations.
+- Place limit orders at the best price on the order book, schedule TWAP slices,
+  and submit range-based stop and IFDOCO orders.
+- Preview TWAP and IFDOCO orders before submitting them.
+- Offset net exposure with a market order.
+
 ## Installation
 
 Requires Ruby 3.3 or later.
@@ -37,25 +46,108 @@ bitflyer summary
 
 Press `Ctrl+C` to exit the live display.
 
+See [Getting started](docs/getting-started.md) for a walkthrough of the
+summary display and open orders.
+
 ## Usage
+
+See the [command reference](docs/reference.md) for options and environment variables.
 
 ```
 Commands:
   bitflyer cancel_all                                          # cancel all of orders
-  bitflyer cancel_order TYPE ID [--confirm-parent]             # request cancellation of one order
-  bitflyer counter_trade                                       # clear all positions
+  bitflyer cancel_order TYPE ID [--confirm-parent]             # request cancellation of one child order or parent strategy
+  bitflyer counter_trade                                       # offset nonzero net exposure with a market order
+  bitflyer executions                                          # show recent account executions for FX_BTC_JPY
   bitflyer help [COMMAND]                                      # Describe available commands or one specific command
   bitflyer ifdoco_by_range --amount=0.01 --type=buy --range=10000 --percentage=60  # create IFDOCO order by range based on current price
   bitflyer open_orders                                         # show active child orders and parent strategies
   bitflyer order_by_best -a=amount -t=buy/sell                 # create limit order by best price in the board
-  bitflyer order_by_twap -a=amount -i=second -n=N -t=buy/sell  # trade specified amount N times at specified intervals (TWAP algorithm).
+  bitflyer order_by_twap -a=amount -i=second -n=N -t=buy/sell  # order by using TWAP algorithm
   bitflyer stop_by_range --range=5000                          # create stop order by range based on current position
   bitflyer summary                                             # show current balance information
 ```
 
+### Preview an order plan
+
+```sh
+bitflyer ifdoco_by_range --amount=0.01 --type=buy --range=10000 --percentage=60 --dry-run
+bitflyer order_by_twap --amount=0.01 --type=buy --number-of-times=3 --interval=10 --dry-run
+```
+
+Both commands validate the inputs and print a local plan without trading
+credentials or order submission. IFDOCO reads the current public ticker and
+shows the reference price and all three legs, including the rounded exit prices.
+A later invocation fetches a fresh ticker and may calculate different prices.
+TWAP shows the side, size per slice, slice count, total BTC, interval, and planned
+time between the first and last slices. It runs without network access or waits.
+
+### Set a stop by range
+
 `stop_by_range` checks active parent orders before submitting. If it finds a
 standalone stop for the same market, side, trigger price, and size, it prints
-the existing stop and its parent order ID.
+the existing stop and its parent order ID. Otherwise, if any active standalone
+stop already covers the same market and closing side, the CLI reports the
+conflicting parent order IDs and exits with status 1 without submitting a stop.
+
+Runs on the same machine and OS account coordinate when they use the same API
+key and stop parameters. The CLI tracks accepted stops in a local submission
+record. It stores records under
+`$XDG_STATE_HOME/bitflyer-cli/stops` (default `~/.local/state/bitflyer-cli/stops`).
+If a connection error, HTTP 5xx response, or conflicting acceptance and error
+fields leave acceptance unverified, the CLI exits with status 1 and prints the
+submission record's path. While acceptance remains unverified, a retry exits
+with status 1 and suppresses resubmission.
+Check the order in bitFlyer before retrying. Once you confirm the outcome, remove
+the unverified record at the path shown by the CLI. The CLI uses up to 64
+persistent `slot-*.lock` files in this directory. Keep those files in place.
+When upgrading from a version that uses one lock file per stop, finish all
+running `stop_by_range` commands before using the new version. You can then
+remove the older lock files whose names are a SHA-256 digest followed by `.lock`.
+
+The CLI retains a completed stop's record so that a stale position snapshot
+cannot trigger a duplicate order with the same parameters. If a new position
+needs a stop with those same parameters, verify the new position and the old
+stop's completion in bitFlyer, then remove the completed record at the path
+shown by the CLI while no `stop_by_range` commands are running.
+
+When reconciling a recorded acceptance ID, the CLI makes up to 10 requests
+across terminal parent-order states. If a communication error interrupts the
+lookup or the limit prevents confirmation, the CLI exits with status 1,
+reports the record path, and keeps the record to prevent resubmission.
+
+For a canceled, expired, or rejected stop, the CLI requires a confirmed zero
+executed size before replacing it with the same parameters. If the stop filled
+in part or its executed size is unknown, the CLI keeps the record and reports
+its path. Confirm the fill and the updated position in bitFlyer before retrying.
+
+### Offset a position
+
+Before sending an offset, `counter_trade` checks active parent orders for the
+market. An active standalone stop on the offset side or an unverifiable lookup
+blocks the trade. The command prints the conflicting order ID when available so
+you can resolve the order before retrying.
+
+`bitflyer counter_trade` coordinates runs for each product on the same machine
+when they share an OS account and state directory. The command saves a record
+under `$XDG_STATE_HOME/bitflyer-cli/counter-trades` (default
+`~/.local/state/bitflyer-cli/counter-trades`) before sending the market order.
+A later run uses the original API key to check the previous order and waits for
+the position to reflect its fills before sizing another offset. While a record
+is pending, runs using other API keys are blocked for that product as well.
+
+If the CLI cannot confirm acceptance, the final order state, or the resulting
+exposure, it exits with status 1 and shows the record path. Retry to check the
+order and position again. bitFlyer omits a canceled, expired, or rejected order
+from the order history lookup when it never received a fill, so a retry whose
+previous offset never filled gets an empty result instead of a terminal order.
+The CLI treats that empty result the same as an unverifiable lookup: it keeps
+the record and reports the acceptance ID and record path rather than guessing
+the outcome. If automatic reconciliation cannot complete, check in bitFlyer
+that the order was never accepted or is no longer live and that the current
+position reflects all fills. Once confirmed, remove the JSON record at the
+displayed path while no `counter_trade` commands are running. Keep the `.lock`
+file in place.
 
 ### List and cancel open orders
 
@@ -74,12 +166,53 @@ bitflyer cancel_order parent JCO20150925-055555-022222 --confirm-parent
 Canceling a parent strategy also cancels its associated orders. The required
 `--confirm-parent` flag works in scripts without an interactive prompt.
 The CLI reports when bitFlyer accepts or rejects the request. Network errors
-and HTTP 5xx responses leave acceptance unverified. Rejected and unverified
+and HTTP 408 or 5xx responses leave acceptance unverified. Rejected and unverified
 requests exit unsuccessfully. Run `bitflyer open_orders` again to check the
 order's status.
 
+### Review account executions
+
+Run `bitflyer executions` with an API key that has permission to list executions.
+The terminal table shows up to 100 recent fills for `FX_BTC_JPY`, with one row
+per fill. Each row includes the execution time, side, price, size, commission,
+child order ID, and acceptance ID.
+
+Copy the Order ID from the Child orders section of `bitflyer open_orders`, or
+copy the `child_order_acceptance_id` printed for an accepted TWAP slice. Pass
+one of the IDs to limit the page to fills for that order, even after it leaves
+the active order list.
+
+```sh
+bitflyer executions
+bitflyer executions --child-order-id JOR20150707-084555-022523
+bitflyer executions --child-order-acceptance-id JRF20150707-050237-639234
+```
+
+An empty page prints `No executions found.` A failed lookup prints an error
+to stderr and exits unsuccessfully.
+
+## Troubleshooting
+
+Both `stop_by_range` and `counter_trade` require an account-owned submission
+directory with group and other write permissions disabled. Use a state path
+without symbolic links or `..` components and with ancestors protected from
+modification by other OS users.
+
 For help with credentials, missing prices, and order status, see
 [Troubleshooting](docs/troubleshooting.md).
+
+### TWAP submission results
+
+`--interval` must be finite and between 0 and 2,147,483,647 seconds, inclusive.
+The command rejects invalid intervals before sending any slices.
+
+`bitflyer order_by_twap` reports the number of slices accepted, rejected,
+unverified, and unattempted. If a transport error, gateway error, or malformed
+response leaves a slice's acceptance unverified, the command stops the schedule
+without retrying that slice and exits with status 1.
+Ctrl+C also stops the schedule and reports the partial totals before exiting
+unsuccessfully. A slice interrupted during submission is unverified. A slice
+still waiting to be submitted is unattempted.
 
 ## Contributing
 

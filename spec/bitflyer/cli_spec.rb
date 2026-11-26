@@ -63,7 +63,7 @@ describe Bitflyer::Cli::Runner do
 
   it 'passes options to order_by_twap' do
     allow(OrderByTWAPCommand).to receive(:new).and_return(command)
-    allow(command).to receive(:run).and_return(accepted: 3, rejected: 0)
+    allow(command).to receive(:run).and_return(accepted: 3, rejected: 0, unverified: 0, unattempted: 0)
     start('order_by_twap', '-a', '0.01', '-t', 'sell', '-n', '3', '-i', '10')
     expect(command).to have_received(:run)
       .with(hash_including('amount' => 0.01, 'type' => 'sell', 'number_of_times' => 3, 'interval' => 10))
@@ -99,7 +99,9 @@ describe Bitflyer::Cli::Runner do
 
   describe 'order_by_twap submission results' do
     let!(:private_client) { stub_persistent_client }
-    let(:acceptance) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' } }
+    let(:acceptance) do
+      Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, 'child_order_acceptance_id' => 'JRF20180101-000000-000001')
+    end
 
     before do
       twap = OrderByTWAPCommand.new
@@ -112,7 +114,8 @@ describe Bitflyer::Cli::Runner do
     end
 
     it 'reports all slices and exits unsuccessfully when a middle slice is rejected' do
-      allow(private_client).to receive(:send_child_order).and_return(acceptance, { 'status' => -200 }, acceptance)
+      rejection = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(400, 'status' => -200)
+      allow(private_client).to receive(:send_child_order).and_return(acceptance, rejection, acceptance)
 
       expect do
         expect { start_twap }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
@@ -124,6 +127,16 @@ describe Bitflyer::Cli::Runner do
       stub_responses(private_client, send_child_order: acceptance)
 
       expect { start_twap }.to output(/TWAP exchange acceptance \(slices\): 3 accepted, 0 rejected/).to_stdout
+    end
+
+    it 'reports partial results and stops submitting when a slice times out' do
+      expect(private_client).to receive(:send_child_order).ordered.and_return(acceptance)
+      expect(private_client).to receive(:send_child_order).ordered.and_raise(Net::ReadTimeout)
+
+      expect do
+        expect { start_twap }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/TWAP exchange acceptance \(slices\): 1 accepted, 0 rejected, 1 unverified, 1 unattempted\./).to_stdout
+      expect(private_client).to have_received(:close).once
     end
   end
 
@@ -141,16 +154,35 @@ describe Bitflyer::Cli::Runner do
     end
   end
 
-  it 'rejects a negative TWAP interval before sending any orders' do
+  it 'rejects an unsupported TWAP order type without sending orders' do
     client = stub_persistent_client
     stub_responses(client, send_child_order: { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' })
 
     expect do
       expect do
-        start('order_by_twap', '--amount', '0.01', '--type', 'buy', '--number-of-times', '2', '--interval', '-1')
-      end.to raise_error(SystemExit)
-    end.to output(/^Invalid interval: --interval must be non-negative\.$/).to_stderr
+        start('order_by_twap', '--amount', '0.01', '--type', 'hold', '--number-of-times', '2', '--interval', '0')
+      end.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end.to output(/^Order type must be buy or sell$/).to_stderr
     expect(client).not_to have_received(:send_child_order)
+  end
+
+  {
+    'negative' => '-1',
+    'overflowing' => "#{'9' * 310}.0",
+    'finite but outside the supported range' => (10**100).to_s
+  }.each do |description, interval|
+    it "rejects the #{description} TWAP interval before sending any orders" do
+      client = stub_persistent_client
+      acceptance = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, 'child_order_acceptance_id' => 'JRF20180101-000000-000001')
+      stub_responses(client, send_child_order: acceptance)
+
+      expect do
+        expect do
+          start('order_by_twap', '-a', '0.01', '-t', 'buy', '-n', '2', "--interval=#{interval}")
+        end.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(/^--interval must be 0\.\.2147483647$/).to_stderr
+      expect(client).not_to have_received(:send_child_order)
+    end
   end
 
   it 'passes options from the README stop_by_range example' do

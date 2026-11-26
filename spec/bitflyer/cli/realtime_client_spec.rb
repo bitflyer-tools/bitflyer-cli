@@ -18,15 +18,16 @@ describe Bitflyer::Cli::RealtimeClient do
     stub_const('OpenSSL::SSL::SSLContext::DEFAULT_CERT_STORE', store)
   end
 
-  [SocketError, Errno::ECONNREFUSED].each do |error_class|
+  [SocketError, Errno::ECONNREFUSED, OpenSSL::SSL::SSLError].each do |error_class|
     context "when a reconnect raises #{error_class}" do
-      let(:connection_error) { error_class.new }
+      let(:fail_tls_handshake) { error_class == OpenSSL::SSL::SSLError }
 
       it 'keeps a pending upgrade and resumes the summary feed after a failed reconnect' do
         ticks = Queue.new
         steps = Queue.new
         upgrades = Queue.new
-        disconnected = Queue.new
+        prices_at_disconnect = Queue.new
+        client = nil
         monitor = nil
         allow_any_instance_of(transport_class).to receive(:start_monitoring).and_wrap_original do |start|
           monitor = start.call
@@ -36,18 +37,26 @@ describe Bitflyer::Cli::RealtimeClient do
           steps.pop
         end
 
-        with_tls_server(connections: 2, upgrades: upgrades, keep_open: true) do |requests, ready|
-          stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
-          command = SummaryCommand.new
-          transport = command.realtime_client.websocket_client
-          on_disconnect = transport.disconnected
-          transport.disconnected = lambda do |error|
-            on_disconnect.call(error)
-            disconnected << error
-          end
-          connection = transport.websocket_client
+        allow(described_class).to receive(:new).and_wrap_original do |start|
+          client = start.call
+        end
+        stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
+        command = SummaryCommand.new
+        subscribed = observe_subscription(command)
 
-          Timeout.timeout(5) do
+        with_tls_server(connections: 2, upgrades: upgrades, keep_open_connections: 1,
+                        fail_tls_handshake: fail_tls_handshake) do |requests, ready|
+          allow(command).to receive(:render) do
+            subscribed.pop
+            transport = client.websocket_client
+            on_disconnect = transport.disconnected
+            transport.disconnected = lambda do |error|
+              price = command.send(:fresh_price)
+              on_disconnect.call(error)
+              prices_at_disconnect << price
+            end
+            connection = transport.websocket_client
+
             expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
             ticks.pop
             steps << true
@@ -57,18 +66,9 @@ describe Bitflyer::Cli::RealtimeClient do
 
             upgrades << true
             ready << true
-            disconnected.pop
+            expect(prices_at_disconnect.pop).to eq(1_010_000.0)
             expect(command.send(:fresh_price)).to be_nil
-            failure = connection_error
-            allow(TCPSocket).to receive(:new).and_wrap_original do |connect, *args|
-              if failure
-                error = failure
-                failure = nil
-                raise error
-              end
-
-              connect.call(*args)
-            end
+            stub_tcp_failure(error_class) unless fail_tls_handshake
             steps << true
             ticks.pop
             expect(transport.websocket_client).to equal(connection)
@@ -83,10 +83,65 @@ describe Bitflyer::Cli::RealtimeClient do
             ready << true
             sleep 0.01 until command.send(:fresh_price) == 1_010_000.0
           end
-        ensure
-          monitor&.kill&.join
-          transport&.websocket_client&.close
+          expect { Timeout.timeout(5) { command.run } }.to output.to_stdout
+          expect(monitor).not_to be_alive
         end
+      end
+    end
+  end
+
+  [IOError, Errno::ECONNRESET].each do |error_class|
+    it "resumes the same summary session after a heartbeat write raises #{error_class}" do
+      ticks = Queue.new
+      steps = Queue.new
+      feed = nil
+      allow_any_instance_of(transport_class).to receive(:start_monitoring).and_call_original
+      allow_any_instance_of(transport_class).to receive(:sleep) do
+        ticks << Thread.current
+        steps.pop
+      end
+      allow(described_class).to receive(:new).and_wrap_original do |start|
+        feed = start.call
+      end
+      stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
+      command = SummaryCommand.new
+      subscribed = observe_subscription(command)
+      monitor = replacement = nil
+
+      with_tls_server(connections: 2, keep_open_connections: 2) do |requests, ready|
+        allow(command).to receive(:render) do
+          subscribed.pop
+          transport = feed.websocket_client
+          connection = transport.websocket_client
+          expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
+          monitor = ticks.pop
+          ready << true
+          sleep 0.01 until command.send(:fresh_price) == 1_010_000.0
+
+          socket = connection.instance_variable_get(:@socket)
+          expect(socket).to receive(:write) do
+            expect(connection).to be_open
+            raise error_class
+          end
+          transport.last_ping_at = 0
+          steps << true
+          expect(ticks.pop).to equal(monitor)
+          expect(socket).to be_closed
+          expect(command.send(:fresh_price)).to be_nil
+
+          steps << true
+          expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
+          expect(ticks.pop).to equal(monitor)
+          replacement = transport.websocket_client
+          expect(replacement).not_to equal(connection)
+          ready << true
+          sleep 0.01 until command.send(:fresh_price) == 1_010_000.0
+          raise Interrupt
+        end
+
+        expect { Timeout.timeout(5) { command.run } }.to output("\e[?25l\e[?25h").to_stdout
+        expect(monitor).not_to be_alive
+        expect(replacement.instance_variable_get(:@reader)).not_to be_alive
       end
     end
   end
@@ -99,7 +154,7 @@ describe Bitflyer::Cli::RealtimeClient do
     expect(OpenSSL::SSL::SSLSocket).not_to receive(:new)
 
     Timeout.timeout(1) do
-      expect { SummaryCommand.new }.to raise_error(SocketError, 'TCP connection timed out')
+      expect { described_class.new }.to raise_error(SocketError, 'TCP connection timed out')
     end
   end
 
@@ -114,11 +169,75 @@ describe Bitflyer::Cli::RealtimeClient do
     end
 
     Timeout.timeout(2) do
-      expect { SummaryCommand.new }.to raise_error(SocketError, 'TLS handshake timed out')
+      expect { described_class.new }.to raise_error(SocketError, 'TLS handshake timed out')
       expect(peer.value).not_to be_empty
     end
   ensure
     peer&.kill&.join
+  end
+
+  it 'renders account data and cancels both workers while the peer stalls TLS' do
+    stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
+    command = SummaryCommand.new
+    workers = Queue.new
+    allow(described_class).to receive(:new).and_wrap_original do |connect|
+      workers << Thread.current
+      connect.call
+    end
+    allow(command).to receive(:sleep).with(5) do
+      workers << Thread.current
+      Thread.stop
+    end
+    allow(command).to receive(:sleep).with(0.1).and_call_original
+    reader, writer = IO.pipe
+    original_stdout = $stdout
+    $stdout = writer
+    runner = Thread.new { command.run }
+    peer = nil
+
+    Timeout.timeout(5) do
+      peer = server.accept
+      expect(peer.readpartial(4096)).not_to be_empty
+      output = +''
+      output << reader.readpartial(4096) until output.include?("Balance:  N/A (N/A)\n")
+      expect(output).to include('Current:  Stale', 'Position: 0 * 0.0')
+      started_workers = Array.new(2) { workers.pop }
+      runner.raise(Interrupt)
+      runner.value
+      expect(started_workers).to all(have_attributes(alive?: false))
+      peer.read
+      expect(peer).to be_eof
+      writer.close
+      expect(reader.read).to end_with("\e[?25h")
+    end
+  ensure
+    runner&.kill&.join
+    $stdout = original_stdout
+    peer&.close
+    writer&.close unless writer&.closed?
+    reader&.close
+  end
+
+  it 'redraws the account with the live price after connecting' do
+    stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
+    command = SummaryCommand.new
+    subscribed = observe_subscription(command)
+
+    with_tls_server(keep_open_connections: 1) do |requests, ready|
+      allow(command).to receive(:sleep).with(5).and_call_original
+      expect(command).to receive(:sleep).with(0.1).and_invoke(
+        lambda do |_|
+          expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
+          subscribed.pop
+          ready << true
+          sleep 0.01 until command.send(:fresh_price) == 1_010_000.0
+        end,
+        ->(_) { raise Interrupt }
+      ).twice
+
+      expect { Timeout.timeout(5) { command.run } }
+        .to output(/Current:  Stale.*Current:  1,010,000/m).to_stdout
+    end
   end
 
   it 'closes a stalled upgrade and delivers executions after reconnecting' do
@@ -143,21 +262,54 @@ describe Bitflyer::Cli::RealtimeClient do
         expect(executions.pop).to eq([{ 'price' => 1_010_000 }])
       end
     ensure
-      transport&.websocket_client&.close
+      client&.shutdown
     end
   end
 
-  it 'delivers executions from a trusted peer for the endpoint hostname' do
-    with_tls_server(keep_open: true) do |requests, ready|
-      stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
-      command = SummaryCommand.new
-      ready << true
-      Timeout.timeout(5) do
-        expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
-        sleep 0.01 until command.send(:fresh_price) == 1_010_000.0
+  it 'stops the socket and feed workers on interruption and receives executions on the next run' do
+    allow_any_instance_of(transport_class).to receive(:start_monitoring).and_call_original
+    clients = []
+    allow(described_class).to receive(:new).and_wrap_original do |start|
+      start.call.tap { |client| clients << client }
+    end
+    stub_responses(stub_persistent_client, positions: [], collateral: { 'collateral' => 0 })
+    command = SummaryCommand.new
+    subscribed = observe_subscription(command)
+
+    with_tls_server(connections: 2, keep_open_connections: 2) do |requests, ready|
+      expect(clients).to be_empty
+      workers = 2.times.flat_map do |index|
+        connection, monitor, reader = nil
+        allow(command).to receive(:render) do
+          subscribed.pop
+          expect(clients.size).to eq(index + 1)
+          transport = clients.last.websocket_client
+          connection = transport.websocket_client
+          monitor = transport.instance_variable_get(:@monitor)
+          reader = connection.instance_variable_get(:@reader)
+
+          Timeout.timeout(5) do
+            expect(requests.pop).to start_with('GET /socket.io/?transport=websocket ')
+            expect(command.send(:fresh_price)).to be_nil
+            ready << true
+            sleep 0.01 until command.send(:fresh_price) == 1_010_000.0
+          end
+          expect(monitor).to be_alive
+          expect(reader).to be_alive
+          raise Interrupt
+        end
+
+        expect { Timeout.timeout(5) { command.run } }.to output.to_stdout
+        expect(connection.instance_variable_get(:@socket)).to be_closed
+        expect(monitor).not_to be_alive
+        expect(reader).not_to be_alive
+        clients.last.websocket_client.reconnect
+        expect(clients.last.websocket_client.websocket_client).to equal(connection)
+        [monitor, reader]
       end
+      expect(workers.uniq.size).to eq(4)
     ensure
-      command&.realtime_client&.websocket_client&.websocket_client&.close
+      clients.each(&:shutdown)
     end
   end
 
@@ -179,12 +331,32 @@ describe Bitflyer::Cli::RealtimeClient do
 
   def expect_rejected(**issuer_options)
     with_tls_server(**issuer_options) do |requests|
-      expect { SummaryCommand.new }.to raise_error(OpenSSL::SSL::SSLError)
+      expect { described_class.new }.to raise_error(OpenSSL::SSL::SSLError)
       expect(Timeout.timeout(5) { requests.pop }).to be_nil
     end
   end
 
-  def with_tls_server(issuer: root, issuer_key: root_key, connections: 1, upgrades: nil, keep_open: false)
+  def observe_subscription(command)
+    subscribed = Queue.new
+    allow(command).to receive(:subscribe_to_feed).and_wrap_original do |subscribe, client|
+      subscribe.call(client)
+      subscribed << true
+    end
+    subscribed
+  end
+
+  def stub_tcp_failure(error_class)
+    failure = error_class.new
+    allow(TCPSocket).to receive(:new).and_wrap_original do |connect, *args|
+      error, failure = failure, nil
+      raise error if error
+
+      connect.call(*args)
+    end
+  end
+
+  def with_tls_server(issuer: root, issuer_key: root_key, connections: 1, upgrades: nil, keep_open_connections: 0,
+                      fail_tls_handshake: false)
     context = OpenSSL::SSL::SSLContext.new
     context.cert = certificate(hostname, server_key, issuer: issuer, issuer_key: issuer_key)
     context.key = server_key
@@ -192,12 +364,21 @@ describe Bitflyer::Cli::RealtimeClient do
     ready = Queue.new
     worker = Thread.new do
       connections.times do |index|
-        serve_execution(context, requests, ready, upgrades, keep_open && index == connections - 1)
+        serve_plain_http if fail_tls_handshake && index == 1
+        serve_execution(context, requests, ready, upgrades, index >= connections - keep_open_connections)
       end
     end
     yield requests, ready
   ensure
     worker&.kill&.join
+  end
+
+  def serve_plain_http
+    socket = server.accept
+    socket.readpartial(4096)
+    socket.write("HTTP/1.1 503 Service Unavailable\r\n\r\n")
+  ensure
+    socket&.close
   end
 
   def serve_execution(context, requests, ready, upgrades, keep_open)

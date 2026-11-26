@@ -2,13 +2,12 @@
 
 require 'bitflyer/cli/command/summary_display'
 require 'bitflyer/cli/has_http_client'
-require 'bitflyer/cli/has_realtime_client'
+require 'bitflyer/cli/realtime_client'
 require 'bitflyer/cli/model/position'
 require 'bitflyer/cli/persistent_http_client'
 
-class SummaryCommand
+class SummaryCommand # rubocop:disable Metrics/ClassLength
   include HasHTTPClient
-  include HasRealtimeClient
   include SummaryDisplay
 
   alias http_private_client persistent_http_client
@@ -16,51 +15,89 @@ class SummaryCommand
   PRICE_FRESHNESS_LIMIT = 30 # seconds
 
   def initialize
-    @execution = nil
-    realtime_client.disconnected = ->(_error) { @execution = nil }
-    realtime_client.executions_fx_btc_jpy = lambda { |message|
-      price = Float(message.last&.[]('price'), exception: false)
-      @execution = [price, monotonic_time] if price&.finite? && price.positive?
-    }
-
     update_balance
+  rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
+    raise HasHTTPClient::AccountLookupFailed, "Failed to look up account: #{e.message}"
   ensure
     close_persistent_http_client unless @account_snapshot
   end
 
   def run # rubocop:disable Metrics/MethodLength
-    return unless @account_snapshot
-
     stdout = $stdout
     original_sync = stdout.sync
-    stdout.sync = true
-    print "\e[?25l"
+    feed_worker = poller = nil
 
-    poller = nil
-    Thread.handle_interrupt(Interrupt => :never) { poller = Thread.new { poll_account } }
+    Thread.handle_interrupt(Interrupt => :never) do
+      stdout.sync = true
+      stdout.print "\e[?25l"
+      @execution = nil
+      @feed = nil
+      feed_worker = start_feed
+      poller = Thread.new { poll_account }
+    end
 
-    render
+    render(feed_worker)
   rescue Interrupt
     # exit
   ensure
-    restore_display(poller, stdout, original_sync)
+    Thread.handle_interrupt(Interrupt => :never) do
+      restore_display(feed_worker, poller, stdout, original_sync)
+    end
   end
 
   private
 
-  def restore_display(poller, stdout, original_sync)
+  def start_feed
+    # The worker inherits the Interrupt mask and accepts cancellation during network I/O.
+    Thread.start do
+      Thread.current.report_on_exception = false
+      @feed = Bitflyer::Cli::RealtimeClient.new
+      Thread.handle_interrupt(Interrupt => :on_blocking) { subscribe_to_feed(@feed) }
+    rescue Interrupt
+      # Stopped by the display thread.
+    end
+  end
+
+  def subscribe_to_feed(feed)
+    feed.disconnected = ->(_error) { @execution = nil }
+    feed.executions_fx_btc_jpy = lambda { |message|
+      price = Float(message.last&.[]('price'), exception: false)
+      @execution = [price, monotonic_time] if price&.finite? && price.positive?
+    }
+  end
+
+  def stop_workers(feed_worker, poller)
     poller&.kill&.join
   ensure
+    stop_feed(feed_worker)
+  end
+
+  def stop_feed(feed_worker)
+    feed_worker&.raise(Interrupt)
+    feed_worker&.join
+  ensure
+    @feed&.shutdown if feed_worker
+  end
+
+  def restore_display(feed_worker, poller, stdout, original_sync)
+    stop_workers(feed_worker, poller)
+  ensure
+    close_http_and_restore_cursor(stdout, original_sync)
+  end
+
+  def close_http_and_restore_cursor(stdout, original_sync)
     close_persistent_http_client
+  ensure
     stdout&.print "\e[?25h"
     stdout.sync = original_sync if stdout
   end
 
-  def render
+  def render(feed_worker)
     puts "\n" * 3
     previous_frame = previous_inputs = nil
 
     loop do
+      feed_worker.value unless feed_worker.alive?
       previous_inputs, previous_frame = redraw(previous_inputs, previous_frame)
       sleep 0.1
     end
@@ -86,31 +123,17 @@ class SummaryCommand
 
   def update_balance
     position = fetch_position
-    return mark_account_stale unless position
-
     balance = fetch_collateral
-    return mark_account_stale if balance.nil?
-
     @account_snapshot = [position, balance, false].freeze
+  rescue HasHTTPClient::AccountLookupFailed => e
+    raise unless @account_snapshot
+
+    warn e.message
+    mark_account_stale
   end
 
   def mark_account_stale
-    return unless @account_snapshot
-
-    @account_snapshot = [*@account_snapshot.first(2), true].freeze
-  end
-
-  def fetch_collateral
-    response = http_private_client.collateral
-    if response.is_a?(Hash)
-      status = response['status']
-      collateral = response['collateral']
-      rejected = status.is_a?(Numeric) && status.negative?
-      return collateral.to_i if !rejected && collateral.is_a?(Numeric) && collateral.finite?
-    end
-
-    warn "Failed to look up collateral: #{response.inspect}"
-    nil
+    @account_snapshot = [*@account_snapshot.first(2), true].freeze if @account_snapshot
   end
 
   def fresh_price
@@ -118,7 +141,5 @@ class SummaryCommand
     price if received_at && monotonic_time - received_at < PRICE_FRESHNESS_LIMIT
   end
 
-  def monotonic_time
-    Process.clock_gettime(Process::CLOCK_MONOTONIC)
-  end
+  def monotonic_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 end

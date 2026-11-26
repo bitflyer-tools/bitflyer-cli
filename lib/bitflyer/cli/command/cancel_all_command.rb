@@ -11,31 +11,20 @@ class CancelAllCommand
   UNVERIFIED = 'Could not verify cancel-all acceptance from bitFlyer'
 
   def run
-    response = cancel
-    return if response.code == '200' && response.body.to_s.empty?
+    client = CancellationClient.new(*private_credentials)
+    result = client.post('/v1/me/cancelallchildorders', product_code: 'FX_BTC_JPY')
+    return if result.outcome == :accepted
 
-    raise Rejected, api_error(response.body) || "#{UNVERIFIED} (HTTP #{response.code})."
+    raise Rejected, failure_message(result)
   end
 
   private
 
-  def cancel
-    CancellationClient.new(api_key, api_secret).post('/v1/me/cancelallchildorders', product_code: 'FX_BTC_JPY')
-  rescue Timeout::Error, SocketError, SystemCallError, IOError,
-         OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError
-    raise Rejected, "#{UNVERIFIED}."
-  end
+  def failure_message(result)
+    if result.outcome == :rejected
+      return result.message.empty? ? "Cancel-all request rejected (status #{result.exchange_status})" : result.message
+    end
 
-  def api_error(body)
-    response = JSON.parse(body.to_s)
-    return unless response.is_a?(Hash)
-
-    status = response['status']
-    return unless status.is_a?(Integer) && status.negative?
-
-    message = response['error_message'].to_s
-    message.empty? ? "Cancel-all request rejected (status #{status})" : message
-  rescue JSON::ParserError
-    nil
+    result.http_code ? "#{UNVERIFIED} (HTTP #{result.http_code})." : "#{UNVERIFIED}."
   end
 end

@@ -16,7 +16,45 @@ module Bitflyer
         @websocket_client = VerifiedWebSocket.new(host: Realtime::SOCKET_HOST, key: nil, secret: nil)
       end
 
+      def shutdown
+        @websocket_client.shutdown
+      end
+
       class VerifiedWebSocket < Bitflyer::Realtime::WebSocketClient
+        def initialize(**options)
+          @lifecycle = Mutex.new
+          super
+          initialized = true
+        ensure
+          shutdown unless initialized
+        end
+
+        def shutdown
+          @lifecycle.synchronize do
+            @stopped = true
+            @monitor&.kill
+          end
+          @monitor&.join
+        ensure
+          @websocket_client&.shutdown
+        end
+
+        def start_monitoring
+          @monitor = super
+        end
+
+        def send_ping
+          connection = @websocket_client
+          super
+        rescue IOError, SystemCallError, OpenSSL::SSL::SSLError => e
+          @lifecycle.synchronize do
+            next if @stopped || !@websocket_client.equal?(connection)
+
+            connection.close
+            handle_close(error: e)
+          end
+        end
+
         def connect
           endpoint = URI.parse("#{@host}/socket.io/?transport=websocket")
           @websocket_client = TLSConnection.new(endpoint)
@@ -24,11 +62,25 @@ module Bitflyer
         end
 
         def reconnect
-          return if @websocket_client&.connecting?
+          # A reader handling an error must not wait for a reconnect that is joining it.
+          return unless @lifecycle.try_lock
 
-          super
-        rescue SocketError, SystemCallError => e
-          debug_log e
+          begin
+            return if @stopped || connection_active?
+
+            @websocket_client&.shutdown
+            connect
+          rescue SocketError, SystemCallError, OpenSSL::SSL::SSLError => e
+            debug_log e
+          ensure
+            @lifecycle.unlock
+          end
+        end
+
+        private
+
+        def connection_active?
+          @websocket_client&.open? || @websocket_client&.connecting?
         end
       end
 
@@ -49,8 +101,8 @@ module Bitflyer
 
         def start(transport)
           register_handlers(transport)
-          @driver.start
-          Thread.new { read_messages(transport) }
+          Thread.handle_interrupt(Interrupt => :on_blocking) { @driver.start }
+          @reader = Thread.new { read_messages(transport) }
         rescue StandardError
           close
           raise
@@ -76,6 +128,11 @@ module Bitflyer
           @socket.close
         end
 
+        def shutdown
+          close
+          @reader&.join unless @reader == Thread.current
+        end
+
         private
 
         def register_handlers(transport)
@@ -88,16 +145,25 @@ module Bitflyer
         end
 
         def connect_tls(endpoint)
-          tcp_socket = connect_tcp(endpoint)
+          tcp_socket = nil
+          Thread.handle_interrupt(Interrupt => :on_blocking) { tcp_socket = connect_tcp(endpoint) }
+          socket = tls_socket(endpoint, tcp_socket)
+          Thread.handle_interrupt(Interrupt => :on_blocking) do
+            Timeout.timeout(TLS_HANDSHAKE_TIMEOUT, SocketError, 'TLS handshake timed out') { socket.connect }
+          end
+          connected = true
+          socket
+        ensure
+          tcp_socket&.close unless connected
+        end
+
+        def tls_socket(endpoint, tcp_socket)
           context = OpenSSL::SSL::SSLContext.new
           context.set_params(verify_mode: OpenSSL::SSL::VERIFY_PEER, verify_hostname: true)
           socket = OpenSSL::SSL::SSLSocket.new(tcp_socket, context)
           socket.sync_close = true
           socket.hostname = endpoint.host
-          Timeout.timeout(TLS_HANDSHAKE_TIMEOUT, SocketError, 'TLS handshake timed out') { socket.connect }
-        rescue StandardError
-          tcp_socket&.close
-          raise
+          socket
         end
 
         def connect_tcp(endpoint)

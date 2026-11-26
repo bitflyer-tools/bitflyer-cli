@@ -17,6 +17,28 @@ Dir[File.expand_path('support/**/*.rb', __dir__)].sort.each { |file| require fil
 RSpec.configure do |config|
   config.include ClientDoubles
 
+  config.around(:each, :stop_state) do |example|
+    Dir.mktmpdir do |directory|
+      @stop_state_directory = File.realpath(directory)
+      example.run
+    end
+  end
+
+  config.before(:each, :stop_state) do
+    allow(Bitflyer::Cli::StopSubmission).to receive(:state_directory).and_return(@stop_state_directory)
+  end
+
+  config.around(:each, :counter_trade_state) do |example|
+    Dir.mktmpdir do |directory|
+      @counter_trade_state_directory = File.realpath(directory)
+      example.run
+    end
+  end
+
+  config.before(:each, :counter_trade_state) do
+    allow(Bitflyer::Cli::CounterTradeSubmission).to receive(:state_directory).and_return(@counter_trade_state_directory)
+  end
+
   config.before do
     allow(Net::HTTP).to receive(:start).and_raise('HTTP requests are not allowed in specs')
     allow(WebSocket::Client::Simple).to receive(:connect).and_raise('WebSocket connections are not allowed in specs')
