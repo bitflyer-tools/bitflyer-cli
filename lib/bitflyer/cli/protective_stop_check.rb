@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'thor'
+require 'bitflyer/cli/active_stop_classifier'
 require 'bitflyer/cli/parent_order_lookup'
 require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/terminal_text'
@@ -8,10 +9,9 @@ require 'bitflyer/cli/terminal_text'
 module Bitflyer
   module Cli
     class ProtectiveStopCheck
-      ORDER_TYPES = %w[LIMIT MARKET STOP STOP_LIMIT TRAIL IFD OCO IFDOCO].freeze
-
       def initialize(client, product_code)
         @lookup = ParentOrderLookup.new(client, product_code)
+        @classifier = ActiveStopClassifier.new(client, product_code)
       end
 
       def verify!(offset_side)
@@ -26,13 +26,13 @@ module Bitflyer
       private
 
       def protective_stop?(order, offset_side)
-        type, side = order.values_at('parent_order_type', 'side')
-        if ORDER_TYPES.include?(type)
-          return false unless type == 'STOP'
-          return side == offset_side if %w[BUY SELL].include?(side)
+        case ActiveStopClassifier.from_list(order, offset_side)
+        when :not_stop, :opposite_side then false
+        when :same_side then true
+        else
+          parameter = @classifier.resolve(order)
+          parameter ? parameter['side'] == offset_side : false
         end
-
-        raise Thor::Error, "Could not verify active parent order#{order_identifier(order)}."
       end
 
       def order_identifier(order)

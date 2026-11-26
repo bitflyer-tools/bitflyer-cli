@@ -466,6 +466,34 @@ describe StopByRangeCommand, :stop_state do
         end
       end
 
+      [nil, 'UNKNOWN'].each do |type|
+        it "verifies stop details when the active row's type is #{type || 'missing'}" do
+          order = type ? parent.merge('parent_order_type' => type) : parent.except('parent_order_type')
+          stub_responses(private_client, parent_orders: [order])
+          stub_parent_detail
+
+          expect { run }.to output(/Existing stop order.*JCO-stop/).to_stdout
+          expect(private_client).to have_received(:parent_order).with(parent_order_id: 'JCO-stop').once
+          expect(private_client).not_to have_received(:send_parent_order)
+        end
+      end
+
+      it 'reports a conflict for a same-side stop resolved from detail when the active row is missing its type' do
+        stub_responses(private_client, parent_orders: [parent.except('parent_order_type')])
+        stub_parent_detail(parameters: [parameters.merge('trigger_price' => 990_000)])
+
+        expect { run }.to raise_error(Thor::Error, 'Conflicting active stop orders: JCO-stop')
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
+      it 'aborts without submitting when an active row with a missing type cannot be resolved' do
+        stub_responses(private_client, parent_orders: [parent.except('parent_order_type')],
+                                       parent_order: { 'status' => -200 })
+
+        expect { run }.to raise_error(StopByRangeCommand::LookupFailed, /JCO-stop/)
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
       it 'fetches only the matching stop detail after 20 same-side stops with a different size' do
         other_stops = (2..21).map do |id|
           parent.merge('id' => id, 'parent_order_id' => "JCO-other-#{id}", 'side' => 'SELL', 'size' => 0.02)
