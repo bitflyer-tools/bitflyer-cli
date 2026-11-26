@@ -19,13 +19,18 @@ RSpec.configure do |config|
 
   config.around(:each, :stop_state) do |example|
     Dir.mktmpdir do |directory|
-      @stop_state_directory = File.realpath(directory)
-      example.run
+      Dir.mktmpdir do |counter_trade_directory|
+        @stop_state_directory = File.realpath(directory)
+        @stop_state_counter_trade_directory = File.realpath(counter_trade_directory)
+        example.run
+      end
     end
   end
 
   config.before(:each, :stop_state) do
     allow(Bitflyer::Cli::StopSubmission).to receive(:state_directory).and_return(@stop_state_directory)
+    allow(Bitflyer::Cli::CounterTradeSubmission).to receive(:state_directory)
+      .and_return(@stop_state_counter_trade_directory)
   end
 
   config.around(:each, :counter_trade_state) do |example|
