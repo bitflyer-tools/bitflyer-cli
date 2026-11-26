@@ -2,6 +2,7 @@
 
 require 'thor'
 require 'bitflyer/cli/active_stop_lookup'
+require 'bitflyer/cli/counter_trade_submission'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/parent_order_lookup'
 require 'bitflyer/cli/persistent_http_client'
@@ -23,13 +24,29 @@ class StopByRangeCommand
     stop = current_stop(options.range)
     return unless stop
 
-    submission = Bitflyer::Cli::StopSubmission.new(api_key, stop)
-    submission.synchronize { place_stop(options.range, stop, submission) }
+    coordinate_with_counter_trade(options.range, stop)
   ensure
     close_persistent_http_client
   end
 
   private
+
+  def coordinate_with_counter_trade(range, stop)
+    coordination = Bitflyer::Cli::CounterTradeSubmission.new(PRODUCT_CODE, api_key)
+    submission = Bitflyer::Cli::StopSubmission.new(api_key, stop)
+    coordination.synchronize do
+      block_for_counter_trade!(coordination)
+      submission.synchronize { place_stop(range, stop, submission) }
+    end
+  end
+
+  def block_for_counter_trade!(coordination)
+    pending = coordination.pending
+    return unless pending
+
+    raise Thor::Error, "A counter trade offset for #{PRODUCT_CODE} is unresolved. Resolve it before placing a " \
+                       "stop; the position may not yet reflect the offset. Counter trade record: #{coordination.path}"
+  end
 
   def current_stop_matches?(range, stop)
     refreshed_stop = current_stop(range)
