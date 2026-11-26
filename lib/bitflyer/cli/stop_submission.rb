@@ -9,6 +9,7 @@ require 'bitflyer/cli/order_rejected'
 require 'bitflyer/cli/parent_order_lookup'
 require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/submission_state_directory'
+require 'bitflyer/cli/terminal_text'
 
 module Bitflyer
   module Cli
@@ -85,7 +86,7 @@ module Bitflyer
         confirm_zero_fill!(order, state, pending) if order && state != 'COMPLETED'
         state
       rescue ParentOrderLookup::RequestLimitExceeded
-        raise Thor::Error, "Stop order #{pending} still requires reconciliation after " \
+        raise Thor::Error, "Stop order #{TerminalText.escape(pending)} still requires reconciliation after " \
                            "#{HISTORY_REQUEST_LIMIT} history requests. Submission record: #{path}"
       rescue *PersistentHTTPClient::COMMUNICATION_ERRORS => e
         raise ParentOrderLookup::LookupFailed,
@@ -101,7 +102,8 @@ module Bitflyer
                  else
                    'has an unconfirmed executed size. Check the order in bitFlyer before retrying.'
                  end
-        raise Thor::Error, "Previous stop order (#{pending}, #{state}) #{detail} Submission record: #{path}"
+        raise Thor::Error,
+              "Previous stop order (#{TerminalText.escape(pending)}, #{state}) #{detail} Submission record: #{path}"
       end
 
       def receive_response

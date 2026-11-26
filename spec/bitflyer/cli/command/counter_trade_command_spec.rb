@@ -298,6 +298,43 @@ describe CounterTradeCommand, :counter_trade_state do
       expect(private_client).to have_received(:send_child_order).once
     end
 
+    context 'with a malicious acceptance ID' do
+      let(:accepted) { { 'child_order_acceptance_id' => "JRF\r\n\e[2J" } }
+
+      it 'escapes terminal controls in the acceptance ID when the previous order is absent from the history lookup' do
+        acceptance_id = accepted.fetch('child_order_acceptance_id')
+        allow(private_client).to receive(:child_order_by_acceptance_id)
+          .with(product_code: 'FX_BTC_JPY', child_order_acceptance_id: acceptance_id).and_return([])
+
+        expect { described_class.new.run }.to output(/Clear position/).to_stdout
+
+        path = File.join(Bitflyer::Cli::CounterTradeSubmission.state_directory, 'FX_BTC_JPY.json')
+        message = 'Previous counter trade (JRF\\r\\n\\e[2J) is absent from the order history lookup. bitFlyer ' \
+                  'omits a canceled, expired, or rejected order from this endpoint when it never received a fill, ' \
+                  "so automatic reconciliation cannot establish the outcome.\n" \
+                  'Check the order and exposure in bitFlyer before retrying. If manual reconciliation is needed, ' \
+                  "see the counter_trade instructions. Record: #{path}"
+        expect { described_class.new.run }.to raise_error(Thor::Error, message)
+        expect(private_client).to have_received(:send_child_order).once
+      end
+
+      it 'escapes terminal controls in the acceptance ID for an ambiguous reconciliation diagnostic' do
+        acceptance_id = accepted.fetch('child_order_acceptance_id')
+        order = accepted.merge('child_order_state' => 'COMPLETED', 'executed_size' => 0.2)
+        allow(private_client).to receive(:child_order_by_acceptance_id)
+          .with(product_code: 'FX_BTC_JPY', child_order_acceptance_id: acceptance_id).and_return([order, order])
+
+        expect { described_class.new.run }.to output(/Clear position/).to_stdout
+
+        path = File.join(Bitflyer::Cli::CounterTradeSubmission.state_directory, 'FX_BTC_JPY.json')
+        message = "Previous counter trade (JRF\\r\\n\\e[2J) is awaiting reconciliation.\n" \
+                  'Check the order and exposure in bitFlyer before retrying. If manual reconciliation is needed, ' \
+                  "see the counter_trade instructions. Record: #{path}"
+        expect { described_class.new.run }.to raise_error(Thor::Error, message)
+        expect(private_client).to have_received(:send_child_order).once
+      end
+    end
+
     it 'keeps reconciling a completed offset after a failed position lookup' do
       acceptance_id = accepted.fetch('child_order_acceptance_id')
       completed = accepted.merge('child_order_state' => 'COMPLETED', 'executed_size' => 0.2)
