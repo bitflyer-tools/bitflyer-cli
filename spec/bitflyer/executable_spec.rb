@@ -73,6 +73,59 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       end.to output(/Could not verify active protective stops.*-200/).to_stderr
       expect(private_client).not_to have_received(:send_child_order)
     end
+
+    it 'escapes terminal controls in the conflicting stop ID and exits without submitting an order' do
+      stop = { 'parent_order_id' => "JCO\r\n\e[2J", 'parent_order_type' => 'STOP', 'side' => 'SELL', 'size' => 0.2 }
+      stub_responses(private_client, parent_orders: [stop])
+
+      expect do
+        expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Active protective stop (JCO\\r\\n\\e[2J) conflicts with the counter trade.\n").to_stderr
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+
+    it 'escapes terminal controls in the parent order ID for an unverifiable active order' do
+      stop = { 'parent_order_id' => "JCO\r\n\e[2J", 'parent_order_type' => 'STOP', 'side' => nil, 'size' => 0.2 }
+      stub_responses(private_client, parent_orders: [stop])
+
+      expect do
+        expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Could not verify active parent order (JCO\\r\\n\\e[2J).\n").to_stderr
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+  end
+
+  context 'when checking active stops before placing a protective stop' do
+    let(:private_client) { stub_persistent_client }
+
+    before do
+      positions = [position(side: 'BUY', price: 1_000_000, size: 0.2)]
+      stub_responses(private_client, positions: positions, send_parent_order: nil)
+    end
+
+    it 'escapes terminal controls in an existing stop order ID' do
+      stop = { 'parent_order_id' => "JCO\r\n\e[2J", 'parent_order_type' => 'STOP', 'side' => 'SELL', 'size' => 0.2 }
+      stub_responses(private_client, parent_orders: [stop])
+      detail = { 'order_method' => 'SIMPLE',
+                 'parameters' => [{ 'product_code' => 'FX_BTC_JPY', 'condition_type' => 'STOP', 'side' => 'SELL',
+                                    'trigger_price' => 995_000, 'size' => 0.2 }] }
+      allow(private_client).to receive(:parent_order).and_return(detail)
+
+      expect { run_cli('stop_by_range', '--range=5000') }
+        .to output("Existing stop order SELL / 995000.0 / 0.2 (JCO\\r\\n\\e[2J)\n").to_stdout
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+
+    it 'escapes terminal controls in conflicting stop order IDs and exits without submitting an order' do
+      stop = { 'parent_order_id' => "JCO\r\n\e[2J", 'parent_order_type' => 'STOP', 'side' => 'SELL', 'size' => 0.05 }
+      stub_responses(private_client, parent_orders: [stop])
+
+      expect do
+        expect { run_cli('stop_by_range', '--range=5000') }
+          .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output("Conflicting active stop orders: JCO\\r\\n\\e[2J\n").to_stderr
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
   end
 
   {

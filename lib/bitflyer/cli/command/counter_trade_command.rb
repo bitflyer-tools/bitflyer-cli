@@ -6,6 +6,7 @@ require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/order_rejected'
 require 'bitflyer/cli/protective_stop_check'
 require 'bitflyer/cli/persistent_http_client'
+require 'bitflyer/cli/terminal_text'
 
 class CounterTradeCommand
   include HasHTTPClient
@@ -51,11 +52,14 @@ class CounterTradeCommand
 
     before = BigDecimal(pending['exposure'].to_s, exception: false)
     executed = terminal_order_lookup.executed_size(submission, id)
-    unless before&.finite? && executed && executed <= before.abs
-      submission.require_reconciliation("Previous counter trade (#{id}) is awaiting reconciliation.")
-    end
+    require_exposure_reconciliation(submission, id) unless before&.finite? && executed && executed <= before.abs
 
     before.positive? ? before - executed : before + executed
+  end
+
+  def require_exposure_reconciliation(submission, id)
+    escaped_id = Bitflyer::Cli::TerminalText.escape(id)
+    submission.require_reconciliation("Previous counter trade (#{escaped_id}) is awaiting reconciliation.")
   end
 
   def terminal_order_lookup
