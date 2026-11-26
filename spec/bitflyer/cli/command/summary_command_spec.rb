@@ -50,6 +50,26 @@ describe SummaryCommand do
     end
   end
 
+  context 'when a communication error interrupts the initial collateral lookup' do
+    {
+      'a socket error' => [SocketError, 'getaddrinfo failed'],
+      'a timeout' => [Timeout::Error, 'execution expired'],
+      'an HTTP 5xx response' => [Net::HTTPBadResponse, 'HTTP request failed (status 500)']
+    }.each do |description, (error_class, message)|
+      context "with #{description}" do
+        it 'reports a clean startup error instead of crashing' do
+          allow(private_client).to receive(:collateral).and_raise(error_class, message)
+          expect(Thread).not_to receive(:new)
+          expect(Bitflyer::Cli::RealtimeClient).not_to receive(:new)
+
+          expect { described_class.new.run }
+            .to raise_error(HasHTTPClient::AccountLookupFailed, /Failed to look up account:.*#{Regexp.escape(message)}/)
+          expect(private_client).to have_received(:close).once
+        end
+      end
+    end
+  end
+
   context 'without any position' do
     let(:positions) { [] }
 
@@ -112,6 +132,24 @@ describe SummaryCommand do
     expect(command).to receive(:sleep).with(5).ordered.and_raise(Interrupt)
     expect { capture_stdout { command.run } }.to output(/Failed to look up positions:.*-200/).to_stderr
     expect(private_client).to have_received(:collateral).once
+    opening_executions << [{ 'price' => 1_000_000 }]
+    refresh = -> { refresh_account(command, price: 1_000_000, size: 0.2, collateral: 60_000) }
+    stale, recovered = capture_stdout { run_iterations(command, refresh) }.split("\e[4F\e[0J").drop(1)
+
+    expect(stale).to include('Current:  1,000,000', 'Position: 1,000,000 * 0.1', 'Balance:  50,000', '[stale]')
+    expect(recovered).to include('Position: 1,000,000 * 0.2', 'Balance:  60,000')
+    expect(recovered).not_to include('[stale]')
+  end
+
+  it 'keeps polling and marks the snapshot stale after a malformed HTTP header response' do
+    command = described_class.new
+    allow(Thread).to receive(:new).and_yield
+    allow(private_client).to receive(:positions).and_raise(Net::HTTPHeaderSyntaxError, 'malformed header')
+    expect(command).to receive(:sleep).with(5).ordered
+    expect(command).to receive(:sleep).with(5).ordered.and_raise(Interrupt)
+
+    capture_stdout { command.run }
+
     opening_executions << [{ 'price' => 1_000_000 }]
     refresh = -> { refresh_account(command, price: 1_000_000, size: 0.2, collateral: 60_000) }
     stale, recovered = capture_stdout { run_iterations(command, refresh) }.split("\e[4F\e[0J").drop(1)

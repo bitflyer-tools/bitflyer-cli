@@ -15,6 +15,8 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
 
   def initialize
     update_balance
+  rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
+    raise HasHTTPClient::AccountLookupFailed, "Failed to look up account: #{e.message}"
   ensure
     close_persistent_http_client unless @account_snapshot
   end
@@ -113,7 +115,7 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     loop do
       sleep 5
       update_balance
-    rescue IOError, Timeout::Error, SocketError, SystemCallError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse
+    rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS
       mark_account_stale
     end
   end

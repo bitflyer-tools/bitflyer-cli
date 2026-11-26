@@ -2,10 +2,12 @@
 
 require 'thor'
 require 'bitflyer/cli/active_stop_lookup'
+require 'bitflyer/cli/counter_trade_submission'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/parent_order_lookup'
 require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/stop_submission'
+require 'bitflyer/cli/terminal_text'
 
 class StopByRangeCommand
   include HasHTTPClient
@@ -22,13 +24,29 @@ class StopByRangeCommand
     stop = current_stop(options.range)
     return unless stop
 
-    submission = Bitflyer::Cli::StopSubmission.new(api_key, stop)
-    submission.synchronize { place_stop(options.range, stop, submission) }
+    coordinate_with_counter_trade(options.range, stop)
   ensure
     close_persistent_http_client
   end
 
   private
+
+  def coordinate_with_counter_trade(range, stop)
+    coordination = Bitflyer::Cli::CounterTradeSubmission.new(PRODUCT_CODE, api_key)
+    submission = Bitflyer::Cli::StopSubmission.new(api_key, stop)
+    coordination.synchronize do
+      block_for_counter_trade!(coordination)
+      submission.synchronize { place_stop(range, stop, submission) }
+    end
+  end
+
+  def block_for_counter_trade!(coordination)
+    pending = coordination.pending
+    return unless pending
+
+    raise Thor::Error, "A counter trade offset for #{PRODUCT_CODE} is unresolved. Resolve it before placing a " \
+                       "stop; the position may not yet reflect the offset. Counter trade record: #{coordination.path}"
+  end
 
   def current_stop_matches?(range, stop)
     refreshed_stop = current_stop(range)
@@ -44,14 +62,24 @@ class StopByRangeCommand
     pending = submission.pending
     description = stop.values_at(:side, :trigger_price, :size).join(' / ')
     order, conflicts = find_active_stop(stop, submission, pending)
-    return puts "Existing stop order #{description} (#{order.fetch('parent_order_id')})" if order
+    return report_existing_stop(order, description) if order
 
-    raise Thor::Error, "Conflicting active stop orders: #{conflicts.join(', ')}" unless conflicts.empty?
+    raise_conflicting_stops(conflicts) unless conflicts.empty?
 
     return if pending && pending_stop?(submission, pending, description)
     return unless current_stop_matches?(range, stop)
 
     submit_stop(stop, description, submission)
+  end
+
+  def report_existing_stop(order, description)
+    id = Bitflyer::Cli::TerminalText.escape(order.fetch('parent_order_id').to_s)
+    puts "Existing stop order #{description} (#{id})"
+  end
+
+  def raise_conflicting_stops(conflicts)
+    ids = conflicts.map { |id| Bitflyer::Cli::TerminalText.escape(id.to_s) }
+    raise Thor::Error, "Conflicting active stop orders: #{ids.join(', ')}"
   end
 
   def find_active_stop(stop, submission, pending)

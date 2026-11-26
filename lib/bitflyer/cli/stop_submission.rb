@@ -9,6 +9,7 @@ require 'bitflyer/cli/order_rejected'
 require 'bitflyer/cli/parent_order_lookup'
 require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/submission_state_directory'
+require 'bitflyer/cli/terminal_text'
 
 module Bitflyer
   module Cli
@@ -28,9 +29,7 @@ module Bitflyer
       attr_reader :path
 
       def self.state_directory
-        root = ENV.fetch('XDG_STATE_HOME', nil)
-        root = File.expand_path('~/.local/state') if root.to_s.empty?
-        File.join(root, 'bitflyer-cli', 'stops')
+        SubmissionStateDirectory.under('stops')
       end
 
       def initialize(api_key, stop)
@@ -40,13 +39,8 @@ module Bitflyer
         @lock_path = File.join(directory, "slot-#{key.to_i(16) % LOCK_COUNT}.lock")
       end
 
-      def synchronize
-        SubmissionStateDirectory.prepare(File.dirname(@path))
-        File.open(@lock_path, File::RDWR | File::CREAT | File::NOFOLLOW, 0o600) do |lock|
-          raise IOError, "Could not lock stop submission: #{@path}" unless lock.flock(File::LOCK_EX)
-
-          yield
-        end
+      def synchronize(&)
+        SubmissionStateDirectory.synchronize(@path, @lock_path, "Could not lock stop submission: #{@path}", &)
       end
 
       def pending
@@ -86,7 +80,7 @@ module Bitflyer
         confirm_zero_fill!(order, state, pending) if order && state != 'COMPLETED'
         state
       rescue ParentOrderLookup::RequestLimitExceeded
-        raise Thor::Error, "Stop order #{pending} still requires reconciliation after " \
+        raise Thor::Error, "Stop order #{TerminalText.escape(pending)} still requires reconciliation after " \
                            "#{HISTORY_REQUEST_LIMIT} history requests. Submission record: #{path}"
       rescue *PersistentHTTPClient::COMMUNICATION_ERRORS => e
         raise ParentOrderLookup::LookupFailed,
@@ -102,7 +96,8 @@ module Bitflyer
                  else
                    'has an unconfirmed executed size. Check the order in bitFlyer before retrying.'
                  end
-        raise Thor::Error, "Previous stop order (#{pending}, #{state}) #{detail} Submission record: #{path}"
+        raise Thor::Error,
+              "Previous stop order (#{TerminalText.escape(pending)}, #{state}) #{detail} Submission record: #{path}"
       end
 
       def receive_response
