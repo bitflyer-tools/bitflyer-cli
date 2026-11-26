@@ -5,6 +5,7 @@ PATH
       bigdecimal
       bitflyer (>= 2.1)
       colorize (>= 0.8.1, < 1.2.0)
+      csv
       thor (>= 0.20, < 1.6)
       websocket-driver (~> 0.9.0)
 
@@ -17,6 +18,7 @@ GEM
     bitflyer (2.1.0)
       websocket-client-simple (>= 0.9)
     colorize (1.1.0)
+    csv (3.3.7)
     diff-lcs (1.6.2)
     event_emitter (0.2.6)
     json (3.1.0)
@@ -96,6 +98,7 @@ CHECKSUMS
   bitflyer-cli (1.0.3)
   bundler (4.1.0) sha256=d7b7a797b988e544a0677a9c6ed78146f2f63d05ae1af8bc7d9426cf88b46377
   colorize (1.1.0) sha256=30b5237f0603f6662ab8d1fc2bd4a96142b806c6415d79e45ef5fdc6a0cfc837
+  csv (3.3.7) sha256=15a3f16f6628da8664d455eb634e7f22031bcf53044923caf56975109e71b9f8
   diff-lcs (1.6.2) sha256=9ae0d2cba7d4df3075fe8cd8602a8604993efc0dfa934cff568969efb1909962
   event_emitter (0.2.6) sha256=c72697bd5cce9d36594be1972c17f1c9a573236f44303a4d1d548080364e1391
   json (3.1.0) sha256=3ce7ccf8fde58960177a3a756c31f292a4c1e1dedee884547096a5b0604e3bd8

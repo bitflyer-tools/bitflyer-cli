@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'csv'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/terminal_text'
@@ -10,17 +11,21 @@ class ExecutionsCommand
   class LookupFailed < StandardError; end
 
   PAGE_SIZE = 100
+  MAX_PAGES = 1_000
   HEADER = 'Execution time | Side | Price (JPY) | Size (BTC) | Commission | Child order ID | Acceptance ID'
+  CSV_HEADER = ['Execution time', 'Side', 'Price (JPY)', 'Size (BTC)', 'Commission', 'Child order ID',
+                'Acceptance ID'].freeze
   FIELDS = %w[exec_date side price size commission child_order_id child_order_acceptance_id].freeze
 
-  def run(child_order_id: nil, child_order_acceptance_id: nil)
+  def run(child_order_id: nil, child_order_acceptance_id: nil, all: false, export: nil)
     if child_order_id && child_order_acceptance_id
       raise LookupFailed, 'Specify only one of --child-order-id and --child-order-acceptance-id.'
     end
 
     filters = { child_order_id: child_order_id, child_order_acceptance_id: child_order_acceptance_id }.compact
-    executions = fetch_executions(filters)
+    executions = all ? fetch_all_executions(filters) : fetch_executions(filters)
     return puts 'No executions found.' if executions.empty?
+    return export_csv(executions, export) if export
 
     rows = executions.map { |execution| Bitflyer::Cli::TerminalText.escape(execution.values_at(*FIELDS).join(' | ')) }
     puts HEADER, rows
@@ -30,11 +35,44 @@ class ExecutionsCommand
 
   private
 
+  def export_csv(executions, path)
+    CSV.open(path, 'w') do |csv|
+      csv << CSV_HEADER
+      executions.each { |execution| csv << execution.values_at(*FIELDS) }
+    end
+    puts "Exported #{executions.size} execution#{'s' unless executions.size == 1} to #{path}."
+  end
+
   def fetch_executions(filters)
     response = executions_page(filters)
     return response if response.is_a?(Array) && response.all? { |execution| complete_execution?(execution) }
 
     raise_lookup_failed(response)
+  end
+
+  def fetch_all_executions(filters)
+    executions = []
+    before = nil
+    MAX_PAGES.times do
+      page = executions_page(filters.merge(before: before).compact)
+      raise_lookup_failed(page) unless page.is_a?(Array) && page.all? { |execution| complete_execution?(execution) }
+
+      executions.concat(page)
+      return executions if page.size < PAGE_SIZE
+
+      before = next_cursor(page, before)
+    end
+    raise LookupFailed, "Could not list executions. Exceeded the #{MAX_PAGES}-page request limit."
+  end
+
+  def next_cursor(page, before)
+    ids = page.map { |execution| execution['id'] }
+    if ids.all? { |id| id.is_a?(Integer) && id.positive? }
+      cursor = ids.min
+      return cursor if before.nil? || cursor < before
+    end
+
+    raise LookupFailed, 'Could not paginate account executions.'
   end
 
   def executions_page(filters)
