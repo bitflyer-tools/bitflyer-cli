@@ -25,15 +25,18 @@ class ExecutionsCommand
     filters = { child_order_id: child_order_id, child_order_acceptance_id: child_order_acceptance_id }.compact
     executions = all ? fetch_all_executions(filters) : fetch_executions(filters)
     return puts 'No executions found.' if executions.empty?
-    return export_csv(executions, export) if export
 
-    rows = executions.map { |execution| Bitflyer::Cli::TerminalText.escape(execution.values_at(*FIELDS).join(' | ')) }
-    puts HEADER, rows
+    export ? export_csv(executions, export) : print_table(executions)
   ensure
     close_persistent_http_client
   end
 
   private
+
+  def print_table(executions)
+    rows = executions.map { |execution| Bitflyer::Cli::TerminalText.escape(execution.values_at(*FIELDS).join(' | ')) }
+    puts HEADER, rows
+  end
 
   def export_csv(executions, path)
     CSV.open(path, 'w') do |csv|
