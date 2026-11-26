@@ -4,6 +4,7 @@ require 'thor'
 require 'bitflyer/cli/active_stop_classifier'
 require 'bitflyer/cli/parent_order_lookup'
 require 'bitflyer/cli/persistent_http_client'
+require 'bitflyer/cli/terminal_text'
 
 module Bitflyer
   module Cli
@@ -38,7 +39,7 @@ module Bitflyer
         id = order.values_at('parent_order_id', 'parent_order_acceptance_id').find do |value|
           value.is_a?(String) && !value.strip.empty?
         end
-        " (#{id})" if id
+        " (#{TerminalText.escape(id)})" if id
       end
     end
   end

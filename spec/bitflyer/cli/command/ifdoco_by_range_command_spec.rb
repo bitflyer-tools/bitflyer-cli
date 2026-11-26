@@ -1,12 +1,11 @@
 require 'spec_helper'
 
 describe IFDOCOByRangeCommand do
-  let!(:public_client) { stub_public_client }
   let!(:private_client) { stub_persistent_client }
   let(:response) { { 'parent_order_acceptance_id' => 'JRF20180101-000000-000001' } }
 
   before do
-    stub_responses(public_client, ticker: { 'ltp' => 1_000_000 })
+    allow(private_client).to receive(:ticker).and_return({ 'ltp' => 1_000_000 })
     submission = Bitflyer::Cli::PersistentHTTPClient::PostResponse.new(200, response)
     stub_responses(private_client, send_parent_order: submission)
   end
@@ -32,7 +31,7 @@ describe IFDOCOByRangeCommand do
   [Float::INFINITY, -Float::INFINITY, Float::NAN].each do |amount|
     it "rejects a non-finite amount of #{amount}" do
       expect { run('buy', amount: amount) }.to raise_error(Thor::Error, 'Amount must be positive and finite.')
-      expect(public_client).not_to have_received(:ticker)
+      expect(private_client).not_to have_received(:ticker)
       expect(private_client).not_to have_received(:send_parent_order)
     end
   end
@@ -58,22 +57,36 @@ describe IFDOCOByRangeCommand do
   end
 
   it 'reports a ticker rejection before submitting an IFDOCO order' do
-    stub_responses(public_client, ticker: { 'status' => -1, 'error_message' => 'Ticker unavailable' })
+    allow(private_client).to receive(:ticker).and_return('status' => -1, 'error_message' => 'Ticker unavailable')
 
     expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, 'Ticker error: Ticker unavailable')
     expect(private_client).not_to have_received(:send_parent_order)
   end
 
+  it 'escapes terminal controls in a ticker rejection message' do
+    allow(private_client).to receive(:ticker).and_return('status' => -1, 'error_message' => "Denied\r\n\e[2J")
+
+    expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, "Ticker error: Denied\\r\\n\\e[2J")
+    expect(private_client).not_to have_received(:send_parent_order)
+  end
+
   it 'rejects an unexpected ticker response' do
-    stub_responses(public_client, ticker: nil)
+    allow(private_client).to receive(:ticker).and_return(nil)
 
     expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, /Ticker error: unexpected response/)
     expect(private_client).not_to have_received(:send_parent_order)
   end
 
+  it 'reports a clean error instead of crashing on a transient ticker lookup failure' do
+    allow(private_client).to receive(:ticker).and_raise(SocketError, 'getaddrinfo failed')
+
+    expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, 'Ticker error: getaddrinfo failed')
+    expect(private_client).not_to have_received(:send_parent_order)
+  end
+
   [{}, { 'ltp' => 0 }, { 'ltp' => -1 }, { 'ltp' => 'unavailable' }, { 'ltp' => Float::INFINITY }].each do |ticker|
     it "rejects a ticker with an unusable last traded price (#{ticker.inspect})" do
-      stub_responses(public_client, ticker: ticker)
+      allow(private_client).to receive(:ticker).and_return(ticker)
 
       expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, /Ticker error: ltp/)
       expect(private_client).not_to have_received(:send_parent_order)
@@ -95,7 +108,7 @@ describe IFDOCOByRangeCommand do
       ].each do |options, message|
         it "rejects #{options} before fetching the reference price" do
           expect { run(side, **options) }.to raise_error(Thor::Error, message)
-          expect(public_client).not_to have_received(:ticker)
+          expect(private_client).not_to have_received(:ticker)
           expect(private_client).not_to have_received(:send_parent_order)
         end
       end
@@ -123,7 +136,7 @@ describe IFDOCOByRangeCommand do
 
   it 'rejects an unknown order type before fetching the reference price' do
     expect { run('unknown') }.to raise_error(Thor::Error, /Order type must be buy or sell/)
-    expect(public_client).not_to have_received(:ticker)
+    expect(private_client).not_to have_received(:ticker)
     expect(private_client).not_to have_received(:send_parent_order)
   end
 
