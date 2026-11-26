@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require 'colorize'
+require 'thor'
+require 'bitflyer/cli/alert_notifier'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/realtime_client'
 require 'bitflyer/cli/model/position'
@@ -13,7 +15,8 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
 
   PRICE_FRESHNESS_LIMIT = 30 # seconds
 
-  def initialize
+  def initialize(options = {})
+    @alert_notifier = build_alert_notifier(options)
     update_balance
   rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
     raise HasHTTPClient::AccountLookupFailed, "Failed to look up account: #{e.message}"
@@ -115,9 +118,28 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     loop do
       sleep 5
       update_balance
+      evaluate_alerts
     rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS
       mark_account_stale
     end
+  end
+
+  def build_alert_notifier(options)
+    webhook_url = options[:notify_webhook]
+    alert_price = options[:alert_price]
+    alert_balance = options[:alert_balance]
+    return if [webhook_url, alert_price, alert_balance].all?(&:nil?)
+    raise Thor::Error, '--alert-price and --alert-balance require --notify-webhook' unless webhook_url
+
+    Bitflyer::Cli::AlertNotifier.new(webhook_url: webhook_url, alert_price: alert_price, alert_balance: alert_balance)
+  end
+
+  def evaluate_alerts
+    return unless @alert_notifier
+
+    position, balance = @account_snapshot
+    price = fresh_price
+    @alert_notifier.check(price: price, balance: price && balance + position.profit(price))
   end
 
   def update_balance
