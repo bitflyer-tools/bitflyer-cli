@@ -121,6 +121,12 @@ executed size before replacing it with the same parameters. If the stop filled
 in part or its executed size is unknown, the CLI keeps the record and reports
 its path. Confirm the fill and the updated position in bitFlyer before retrying.
 
+`stop_by_range` also joins the `counter_trade` lock for the same product and
+state directory, so the two commands cannot check active orders and submit at
+the same time. If a `counter_trade` record for the product is still pending,
+`stop_by_range` exits with status 1 without submitting a stop, since the
+position it fetched may not yet reflect the offset.
+
 ### Offset a position
 
 Before sending an offset, `counter_trade` checks active parent orders for the
