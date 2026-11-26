@@ -51,6 +51,8 @@ describe StopByRangeCommand, :stop_state do
   end
 
   context 'when a communication error interrupts the position lookup' do
+    let(:positions) { [] }
+
     it 'reports a clean error instead of crashing' do
       allow(private_client).to receive(:positions).and_raise(SocketError, 'getaddrinfo failed')
       expect(Position).not_to receive(:new)
