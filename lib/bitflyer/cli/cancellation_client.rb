@@ -1,14 +1,10 @@
 # frozen_string_literal: true
 
 require 'json'
-require 'net/http'
-require 'openssl'
-require 'uri'
+require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/terminal_text'
 
 class CancellationClient
-  API_URL = 'https://api.bitflyer.jp'
-
   Result = Data.define(:outcome, :http_code, :exchange_status, :message) do
     def unverified_http_status?
       http_code == '408' || http_code.to_i.between?(500, 599)
@@ -16,26 +12,18 @@ class CancellationClient
   end
 
   def initialize(key, secret)
-    @key = key
-    @secret = secret
+    @client = Bitflyer::Cli::PersistentHTTPClient.new(key, secret)
   end
 
   def post(path, params)
-    classify(send_request(path, params))
-  rescue Timeout::Error, SocketError, SystemCallError, IOError,
-         OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError
+    classify(@client.cancel(path, params))
+  rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS
     Result.new(:unverified, nil, nil, nil)
+  ensure
+    @client.close
   end
 
   private
-
-  def send_request(path, params)
-    uri = URI.join(API_URL, path)
-    request = Net::HTTP::Post.new(uri, 'Accept' => 'application/json', 'Content-Type' => 'application/json')
-    request.body = JSON.generate(params)
-    sign(request) if @key && @secret
-    Net::HTTP.start(uri.host, uri.port, use_ssl: true) { |http| http.request(request) }
-  end
 
   def classify(response)
     code = response.code
@@ -57,14 +45,5 @@ class CancellationClient
     parsed.is_a?(Hash) ? parsed : {}
   rescue JSON::ParserError
     {}
-  end
-
-  def sign(request)
-    timestamp = Time.now.to_i.to_s
-    request['ACCESS-KEY'] = @key
-    request['ACCESS-TIMESTAMP'] = timestamp
-    request['ACCESS-SIGN'] = OpenSSL::HMAC.hexdigest(
-      'SHA256', @secret, timestamp + request.method + request.path + request.body
-    )
   end
 end

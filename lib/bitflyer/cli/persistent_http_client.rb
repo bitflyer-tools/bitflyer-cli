@@ -37,6 +37,10 @@ module Bitflyer
         @connection.get('/v1/me/getchildorders', query).body
       end
 
+      def cancel(path, params)
+        @connection.raw_post(path, params)
+      end
+
       def close
         @session.close
       end
@@ -60,6 +64,15 @@ module Bitflyer
         def initialize(key, secret, session)
           super(key, secret)
           @session = session
+        end
+
+        # Sends a signed POST and returns the raw Net::HTTPResponse, bypassing the empty-body
+        # check in #parse_response (cancellation endpoints respond 200 with an empty body).
+        def raw_post(path, body)
+          request = Net::HTTP::Post.new(path, default_headers.merge('Content-Type' => 'application/json'))
+          request.body = JSON.generate(body.compact)
+          sign_request(request, path, request.body)
+          @session.http(@uri).request(request)
         end
 
         private

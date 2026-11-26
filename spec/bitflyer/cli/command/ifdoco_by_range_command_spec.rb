@@ -77,6 +77,13 @@ describe IFDOCOByRangeCommand do
     expect(private_client).not_to have_received(:send_parent_order)
   end
 
+  it 'reports a clean error instead of crashing on a transient ticker lookup failure' do
+    allow(private_client).to receive(:ticker).and_raise(SocketError, 'getaddrinfo failed')
+
+    expect { run('buy') }.to raise_error(HasHTTPClient::TickerError, 'Ticker error: getaddrinfo failed')
+    expect(private_client).not_to have_received(:send_parent_order)
+  end
+
   [{}, { 'ltp' => 0 }, { 'ltp' => -1 }, { 'ltp' => 'unavailable' }, { 'ltp' => Float::INFINITY }].each do |ticker|
     it "rejects a ticker with an unusable last traded price (#{ticker.inspect})" do
       allow(private_client).to receive(:ticker).and_return(ticker)
