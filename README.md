@@ -56,14 +56,14 @@ See the [command reference](docs/reference.md) for options and environment varia
 ```
 Commands:
   bitflyer cancel_all                                          # cancel all of orders
-  bitflyer cancel_order TYPE ID [--confirm-parent]             # request cancellation of one order
+  bitflyer cancel_order TYPE ID [--confirm-parent]             # request cancellation of one child order or parent strategy
   bitflyer counter_trade                                       # offset nonzero net exposure with a market order
-  bitflyer executions                                          # show recent account executions
+  bitflyer executions                                          # show recent account executions for FX_BTC_JPY
   bitflyer help [COMMAND]                                      # Describe available commands or one specific command
   bitflyer ifdoco_by_range --amount=0.01 --type=buy --range=10000 --percentage=60  # create IFDOCO order by range based on current price
   bitflyer open_orders                                         # show active child orders and parent strategies
   bitflyer order_by_best -a=amount -t=buy/sell                 # create limit order by best price in the board
-  bitflyer order_by_twap -a=amount -i=second -n=N -t=buy/sell  # trade specified amount N times at specified intervals (TWAP algorithm).
+  bitflyer order_by_twap -a=amount -i=second -n=N -t=buy/sell  # order by using TWAP algorithm
   bitflyer stop_by_range --range=5000                          # create stop order by range based on current position
   bitflyer summary                                             # show current balance information
 ```
@@ -144,11 +144,16 @@ is pending, runs using other API keys are blocked for that product as well.
 
 If the CLI cannot confirm acceptance, the final order state, or the resulting
 exposure, it exits with status 1 and shows the record path. Retry to check the
-order and position again. If automatic reconciliation cannot complete, check
-in bitFlyer that the order was never accepted or is no longer live and that
-the current position reflects all fills. Once confirmed, remove the JSON record
-at the displayed path while no `counter_trade` commands are running. Keep the
-`.lock` file in place.
+order and position again. bitFlyer omits a canceled, expired, or rejected order
+from the order history lookup when it never received a fill, so a retry whose
+previous offset never filled gets an empty result instead of a terminal order.
+The CLI treats that empty result the same as an unverifiable lookup: it keeps
+the record and reports the acceptance ID and record path rather than guessing
+the outcome. If automatic reconciliation cannot complete, check in bitFlyer
+that the order was never accepted or is no longer live and that the current
+position reflects all fills. Once confirmed, remove the JSON record at the
+displayed path while no `counter_trade` commands are running. Keep the `.lock`
+file in place.
 
 ### List and cancel open orders
 

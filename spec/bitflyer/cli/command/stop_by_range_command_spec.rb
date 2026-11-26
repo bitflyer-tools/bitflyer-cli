@@ -50,6 +50,19 @@ describe StopByRangeCommand, :stop_state do
     end
   end
 
+  context 'when a communication error interrupts the position lookup' do
+    let(:positions) { [] }
+
+    it 'reports a clean error instead of crashing' do
+      allow(private_client).to receive(:positions).and_raise(SocketError, 'getaddrinfo failed')
+      expect(Position).not_to receive(:new)
+
+      expect { run }
+        .to raise_error(HasHTTPClient::PositionLookupFailed, /Failed to look up positions:.*getaddrinfo failed/)
+      expect(private_client).not_to have_received(:send_parent_order)
+    end
+  end
+
   context 'with a long position' do
     let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.2)] }
 
@@ -262,6 +275,25 @@ describe StopByRangeCommand, :stop_state do
       end
     end
 
+    context 'with a malicious parent order acceptance ID' do
+      let(:response) { { 'parent_order_acceptance_id' => "JRF\r\n\e[2J" } }
+
+      it 'escapes terminal controls in the retained stop order ID while confirming zero fill' do
+        expect { run }.to output(/Set stop order/).to_stdout
+        directory = Bitflyer::Cli::StopSubmission.state_directory
+        record = Dir.glob(File.join(directory, '*')).find { |path| !path.end_with?('.lock') }
+        allow(private_client).to receive(:parent_orders)
+          .with(hash_including(parent_order_state: 'CANCELED')).and_return([response.merge('executed_size' => 0.05)])
+
+        message = 'Previous stop order (JRF\\r\\n\\e[2J, CANCELED) executed 0.05 BTC. ' \
+                  'Wait for the position to reflect the fill before retrying. ' \
+                  "Submission record: #{record}"
+        expect { run }.to raise_error(Thor::Error, message)
+        expect(File.read(record)).to eq(response.fetch('parent_order_acceptance_id'))
+        expect(private_client).to have_received(:send_parent_order).once
+      end
+    end
+
     context 'when reconciling a stop against paginated history' do
       def stub_canceled_history(full_pages)
         allow(private_client).to receive(:parent_orders)
@@ -302,6 +334,25 @@ describe StopByRangeCommand, :stop_state do
         expect { run }.to output(/Previous stop order.*COMPLETED.*Completed submission record/m).to_stdout
         expect(private_client).to have_received(:parent_orders).exactly(12).times
         expect(private_client).to have_received(:send_parent_order).once
+      end
+
+      context 'with a malicious parent order acceptance ID' do
+        let(:response) { { 'parent_order_acceptance_id' => "JRF\r\n\e[2J" } }
+
+        it 'escapes terminal controls in the pending stop order ID after exhausting history requests' do
+          stub_canceled_history(7)
+          directory = Bitflyer::Cli::StopSubmission.state_directory
+          records = Dir.children(directory).reject { |name| name.end_with?('.lock') }
+          record_path = File.join(directory, records.first)
+          acceptance_id = response.fetch('parent_order_acceptance_id')
+
+          message = 'Stop order JRF\\r\\n\\e[2J still requires reconciliation after 10 history requests. ' \
+                    "Submission record: #{record_path}"
+          expect { run }.to raise_error(Thor::Error, message)
+          expect(File.read(record_path)).to eq(acceptance_id)
+          expect(private_client).to have_received(:parent_orders).exactly(12).times
+          expect(private_client).to have_received(:send_parent_order).once
+        end
       end
     end
 
@@ -415,7 +466,7 @@ describe StopByRangeCommand, :stop_state do
         end
       end
 
-      it 'prefers an exact match after checking 20 same-side stops with a different size' do
+      it 'fetches only the matching stop detail after 20 same-side stops with a different size' do
         other_stops = (2..21).map do |id|
           parent.merge('id' => id, 'parent_order_id' => "JCO-other-#{id}", 'side' => 'SELL', 'size' => 0.02)
         end
@@ -427,8 +478,20 @@ describe StopByRangeCommand, :stop_state do
           .and_return('order_method' => 'SIMPLE', 'parameters' => [parameters.merge('size' => 0.01)])
 
         expect { run }.to output(/Existing stop order.*JCO-stop/).to_stdout
-        expect(private_client).to have_received(:parent_order).exactly(21).times
+        expect(private_client).to have_received(:parent_order).once
         expect(private_client).to have_received(:parent_order).with(parent_order_id: 'JCO-stop')
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
+      it 'reports conflicts for same-side stops with a different size without fetching their detail' do
+        other_stops = (2..21).map do |id|
+          parent.merge('id' => id, 'parent_order_id' => "JCO-other-#{id}", 'side' => 'SELL', 'size' => 0.02)
+        end
+        stub_responses(private_client, parent_orders: other_stops, parent_order: {})
+        ids = other_stops.map { |order| order.fetch('parent_order_id') }
+
+        expect { run }.to raise_error(Thor::Error, "Conflicting active stop orders: #{ids.join(', ')}")
+        expect(private_client).not_to have_received(:parent_order)
         expect(private_client).not_to have_received(:send_parent_order)
       end
 

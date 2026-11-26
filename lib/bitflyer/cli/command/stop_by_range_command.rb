@@ -7,6 +7,7 @@ require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/parent_order_lookup'
 require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/stop_submission'
+require 'bitflyer/cli/terminal_text'
 
 class StopByRangeCommand
   include HasHTTPClient
@@ -61,14 +62,24 @@ class StopByRangeCommand
     pending = submission.pending
     description = stop.values_at(:side, :trigger_price, :size).join(' / ')
     order, conflicts = find_active_stop(stop, submission, pending)
-    return puts "Existing stop order #{description} (#{order.fetch('parent_order_id')})" if order
+    return report_existing_stop(order, description) if order
 
-    raise Thor::Error, "Conflicting active stop orders: #{conflicts.join(', ')}" unless conflicts.empty?
+    raise_conflicting_stops(conflicts) unless conflicts.empty?
 
     return if pending && pending_stop?(submission, pending, description)
     return unless current_stop_matches?(range, stop)
 
     submit_stop(stop, description, submission)
+  end
+
+  def report_existing_stop(order, description)
+    id = Bitflyer::Cli::TerminalText.escape(order.fetch('parent_order_id').to_s)
+    puts "Existing stop order #{description} (#{id})"
+  end
+
+  def raise_conflicting_stops(conflicts)
+    ids = conflicts.map { |id| Bitflyer::Cli::TerminalText.escape(id.to_s) }
+    raise Thor::Error, "Conflicting active stop orders: #{ids.join(', ')}"
   end
 
   def find_active_stop(stop, submission, pending)

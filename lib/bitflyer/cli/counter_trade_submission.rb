@@ -12,9 +12,7 @@ module Bitflyer
       attr_reader :path
 
       def self.state_directory
-        root = ENV.fetch('XDG_STATE_HOME', nil)
-        root = File.expand_path('~/.local/state') if root.to_s.empty?
-        File.join(root, 'bitflyer-cli', 'counter-trades')
+        SubmissionStateDirectory.under('counter-trades')
       end
 
       def initialize(product_code, api_key)
@@ -22,13 +20,8 @@ module Bitflyer
         @credential = Digest::SHA256.hexdigest(api_key.to_s)
       end
 
-      def synchronize
-        SubmissionStateDirectory.prepare(File.dirname(@path))
-        File.open("#{@path}.lock", File::RDWR | File::CREAT | File::NOFOLLOW, 0o600) do |lock|
-          raise IOError, "Could not lock counter trade: #{@path}" unless lock.flock(File::LOCK_EX)
-
-          yield
-        end
+      def synchronize(&)
+        SubmissionStateDirectory.synchronize(@path, "#{@path}.lock", "Could not lock counter trade: #{@path}", &)
       end
 
       def pending
