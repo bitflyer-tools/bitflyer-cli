@@ -27,9 +27,7 @@ module Bitflyer
       attr_reader :path
 
       def self.state_directory
-        root = ENV.fetch('XDG_STATE_HOME', nil)
-        root = File.expand_path('~/.local/state') if root.to_s.empty?
-        File.join(root, 'bitflyer-cli', 'stops')
+        SubmissionStateDirectory.under('stops')
       end
 
       def initialize(api_key, stop)
@@ -39,13 +37,8 @@ module Bitflyer
         @lock_path = File.join(directory, "slot-#{key.to_i(16) % LOCK_COUNT}.lock")
       end
 
-      def synchronize
-        SubmissionStateDirectory.prepare(File.dirname(@path))
-        File.open(@lock_path, File::RDWR | File::CREAT | File::NOFOLLOW, 0o600) do |lock|
-          raise IOError, "Could not lock stop submission: #{@path}" unless lock.flock(File::LOCK_EX)
-
-          yield
-        end
+      def synchronize(&block)
+        SubmissionStateDirectory.synchronize(@path, @lock_path, "Could not lock stop submission: #{@path}", &block)
       end
 
       def pending
