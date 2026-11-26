@@ -29,7 +29,9 @@ module Bitflyer
         body = response.body
         return check!(body, acceptance_key) if status.between?(200, 299)
 
-        raise_rejection!(body) if status.between?(400, 499) && body.is_a?(Hash) && rejected?(body[acceptance_key], body)
+        if client_rejection_status?(status) && body.is_a?(Hash) && rejected?(body[acceptance_key], body)
+          raise_rejection!(body)
+        end
 
         raise Unverified, "Could not verify order acceptance (HTTP #{status})."
       end
