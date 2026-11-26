@@ -2,6 +2,7 @@
 
 require 'bigdecimal'
 require 'bitflyer/cli/persistent_http_client'
+require 'bitflyer/cli/terminal_text'
 
 module Bitflyer
   module Cli
@@ -49,8 +50,8 @@ module Bitflyer
 
       def require_absent_order_reconciliation(submission, id)
         submission.require_reconciliation(
-          "Previous counter trade (#{id}) is absent from the order history lookup. bitFlyer omits " \
-          'a canceled, expired, or rejected order from this endpoint when it never received a fill, ' \
+          "Previous counter trade (#{TerminalText.escape(id)}) is absent from the order history lookup. bitFlyer " \
+          'omits a canceled, expired, or rejected order from this endpoint when it never received a fill, ' \
           'so automatic reconciliation cannot establish the outcome.'
         )
       end
