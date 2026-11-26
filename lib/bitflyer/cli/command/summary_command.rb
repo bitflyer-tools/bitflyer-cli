@@ -116,7 +116,7 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     loop do
       sleep 5
       update_balance
-    rescue IOError, Timeout::Error, SocketError, SystemCallError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse
+    rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS
       mark_account_stale
     end
   end
