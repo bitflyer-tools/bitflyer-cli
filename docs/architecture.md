@@ -35,8 +35,9 @@ command is interrupted or retried, so each keeps a record under
 (`$XDG_STATE_HOME/bitflyer-cli`) and locks a file with `flock` before reading or writing
 it, so concurrent runs on the same machine serialize instead of racing.
 [`DurableFile.replace`](../lib/bitflyer/cli/durable_file.rb) writes a record to a
-temporary file in the same directory and `fsync`s it and its ancestors before the
-rename, so a crash cannot leave a torn or missing record.
+temporary file in the same directory, `fsync`s it, renames it into place, and then
+`fsync`s the directory and its ancestors, so a crash cannot leave a torn or missing
+record.
 
 - [`StopSubmission`](../lib/bitflyer/cli/stop_submission.rb) backs `stop_by_range`. Its
   `synchronize` locks one of 64 persistent `slot-*.lock` files keyed by a SHA-256 digest
