@@ -74,7 +74,7 @@ describe StopByRangeCommand, :stop_state do
 
     [0, -5000].each do |range|
       it "rejects a range of #{range} without sending an order" do
-        expect { run(range) }.to raise_error(ArgumentError, 'Range must be positive')
+        expect { run(range) }.to raise_error(Thor::Error, 'Range must be positive')
         expect(private_client).not_to have_received(:send_parent_order)
       end
     end

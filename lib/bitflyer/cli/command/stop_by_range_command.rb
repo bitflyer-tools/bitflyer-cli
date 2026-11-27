@@ -19,7 +19,7 @@ class StopByRangeCommand
   PRODUCT_CODE = 'FX_BTC_JPY'
 
   def run(options)
-    raise ArgumentError, 'Range must be positive' unless options.range.positive?
+    raise Thor::Error, 'Range must be positive' unless options.range.positive?
 
     stop = current_stop(options.range)
     return unless stop
