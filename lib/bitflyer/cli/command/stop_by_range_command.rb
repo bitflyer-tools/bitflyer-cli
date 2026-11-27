@@ -98,7 +98,8 @@ class StopByRangeCommand
       submission.raise_unverified("Stop order #{description} is unverified and awaiting confirmation.")
     end
 
-    puts "Previous stop order #{description} (#{id}): #{state || 'awaiting confirmation'}"
+    escaped_id = Bitflyer::Cli::TerminalText.escape(id.to_s)
+    puts "Previous stop order #{description} (#{escaped_id}): #{state || 'awaiting confirmation'}"
     puts "Completed submission record: #{submission.path}" if state == 'COMPLETED'
     true
   end

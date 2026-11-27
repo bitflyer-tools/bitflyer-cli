@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'bitflyer/cli/parent_order_lookup'
+require 'bitflyer/cli/terminal_text'
 
 module Bitflyer
   module Cli
@@ -40,7 +41,8 @@ module Bitflyer
         detail = @client.parent_order(parent_order_id: order_id)
         return detail if detail.is_a?(Hash) && detail['parameters'].is_a?(Array)
 
-        raise ParentOrderLookup::LookupFailed, "Failed to look up parent order #{order_id}: #{detail.inspect}"
+        escaped_id = TerminalText.escape(order_id.to_s)
+        raise ParentOrderLookup::LookupFailed, "Failed to look up parent order #{escaped_id}: #{detail.inspect}"
       end
     end
   end
