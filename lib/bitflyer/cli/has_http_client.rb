@@ -38,13 +38,19 @@ module HasHTTPClient
     when :rejected
       Bitflyer::Cli::OrderRejected.raise_rejection!(response.body)
     when :unverified
-      raise Bitflyer::Cli::OrderRejected::Unverified, "Could not verify order acceptance (HTTP #{response.status})."
+      raise Bitflyer::Cli::OrderRejected::Unverified, unverified_submission_message(response.status)
     end
   rescue Timeout::Error, SocketError, SystemCallError, IOError,
          OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError => e
     raise Bitflyer::Cli::OrderRejected::Unverified, "Could not verify order acceptance: #{e.message}"
   ensure
     close_persistent_http_client
+  end
+
+  def unverified_submission_message(status)
+    return 'Could not verify order acceptance.' if status.between?(200, 299)
+
+    "Could not verify order acceptance (HTTP #{status})."
   end
 
   def fetch_ticker_price(field, client:)
