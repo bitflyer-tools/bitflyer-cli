@@ -88,7 +88,8 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       id = "JCO\r\n\e[2J"
       stop = { 'parent_order_id' => id, 'parent_order_type' => 'STOP', 'side' => nil, 'size' => 0.2 }
       stub_responses(private_client, parent_orders: [stop])
-      message = /Could not verify active protective stops: Failed to look up parent order #{Regexp.escape(id)}/
+      escaped_id = Regexp.escape(Bitflyer::Cli::TerminalText.escape(id))
+      message = /Could not verify active protective stops: Failed to look up parent order #{escaped_id}/
 
       expect do
         expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
