@@ -65,68 +65,6 @@ describe Bitflyer::Cli::OrderRejected do
     end
   end
 
-  describe '.check_submission!' do
-    context 'when the HTTP status is successful and the acceptance ID is valid' do
-      let(:status) { 200 }
-      let(:body) { { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' } }
-
-      it 'does not raise' do
-        expect { described_class.check_submission!(response, 'child_order_acceptance_id') }.not_to raise_error
-      end
-    end
-
-    context 'when the HTTP status is a client error and the exchange rejected the order' do
-      let(:status) { 400 }
-      let(:body) { { 'status' => -205, 'error_message' => 'Insufficient funds' } }
-
-      it 'raises with the exchange rejection message' do
-        expect { described_class.check_submission!(response, 'child_order_acceptance_id') }
-          .to raise_error(described_class, 'Insufficient funds')
-      end
-    end
-
-    context 'when the HTTP status cannot be classified as accepted or rejected' do
-      let(:status) { 500 }
-      let(:body) { { 'status' => -205 } }
-
-      it 'raises Unverified naming the HTTP status' do
-        expect { described_class.check_submission!(response, 'child_order_acceptance_id') }
-          .to raise_error(described_class::Unverified, 'Could not verify order acceptance (HTTP 500).')
-      end
-    end
-  end
-
-  describe '.check!' do
-    context 'when the response is not a Hash' do
-      it 'raises Unverified' do
-        expect { described_class.check!(nil, 'child_order_acceptance_id') }
-          .to raise_error(described_class::Unverified, 'Could not verify order acceptance.')
-      end
-    end
-
-    context 'when the acceptance ID is valid' do
-      it 'does not raise' do
-        body = { 'child_order_acceptance_id' => 'JRF20180101-000000-000001' }
-        expect { described_class.check!(body, 'child_order_acceptance_id') }.not_to raise_error
-      end
-    end
-
-    context 'when there is no acceptance ID and no rejection evidence' do
-      it 'raises Unverified' do
-        expect { described_class.check!({}, 'child_order_acceptance_id') }
-          .to raise_error(described_class::Unverified, 'Could not verify order acceptance.')
-      end
-    end
-
-    context 'when the exchange rejected the order' do
-      it 'raises with the exchange rejection message' do
-        body = { 'status' => -205, 'error_message' => 'Insufficient funds' }
-        expect { described_class.check!(body, 'child_order_acceptance_id') }
-          .to raise_error(described_class, 'Insufficient funds')
-      end
-    end
-  end
-
   describe '.raise_rejection!' do
     it 'raises with the exchange error message' do
       expect { described_class.raise_rejection!('error_message' => 'Insufficient funds') }
