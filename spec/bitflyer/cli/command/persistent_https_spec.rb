@@ -169,6 +169,39 @@ describe 'Persistent exchange HTTPS' do
     end
   end
 
+  context 'when an order response has corrupt gzip data' do
+    let(:corrupt_response) { ['invalid compressed bytes', false, '200 OK', { 'Content-Encoding' => 'gzip' }] }
+
+    it 'reports the first TWAP slice as unverified and exits without submitting the next slice' do
+      start_server { corrupt_response }
+      stub_const('ARGV', %w[order_by_twap -a 0.01 -t buy -n 2 -i 0])
+
+      expect { run_executable }.to output(/0 accepted, 0 rejected, 1 unverified, 1 unattempted\./).to_stdout
+      expect(closed_connection).to eq(1)
+      expect(@server.requests.map { |id, method, path| [id, method, path] }).to eq([[1, 'POST', order_path]])
+    end
+
+    it 'reports unverified acceptance for a single limit order without a backtrace' do
+      ticker_path = '/v1/ticker?product_code=FX_BTC_JPY'
+      start_server do |path|
+        path == ticker_path ? [{ best_bid: 999_000, best_ask: 1_000_000 }, false] : corrupt_response
+      end
+      stub_const('ARGV', %w[order_by_best -a 0.01 -t buy])
+
+      expect { run_executable }
+        .to output("Could not verify order acceptance: Could not decompress HTTP response\n").to_stderr
+        .and output('').to_stdout
+      expect(closed_connection).to eq(1)
+      expect(@server.requests.map { |id, method, path| [id, method, path] })
+        .to eq([[1, 'GET', ticker_path], [1, 'POST', order_path]])
+    end
+
+    def run_executable
+      expect { load File.expand_path('../../../../exe/bitflyer', __dir__) }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+    end
+  end
+
   context 'when looking up a protective stop', :stop_state do
     let(:position_rows) { [position(side: 'BUY', price: 1_000_000, size: 0.1)] }
     let(:parent_orders) do

@@ -57,12 +57,13 @@ class KeepAliveHTTPSServer
       headers = read_headers(socket)
       body = socket.read(headers.fetch('content-length', '0').to_i)
       @requests << [connection, method, path, headers, body]
-      response, close, status = yield(path, @requests.size)
+      response, close, status, response_headers = yield(path, @requests.size)
       break unless response
 
       payload = response.is_a?(String) ? response : JSON.generate(response)
+      extra_headers = response_headers&.map { |key, value| "#{key}: #{value}\r\n" }&.join
       socket.write("HTTP/1.1 #{status || '200 OK'}\r\nContent-Length: #{payload.bytesize}\r\n" \
-                   "Connection: #{close ? 'close' : 'keep-alive'}\r\n\r\n#{payload}")
+                   "Connection: #{close ? 'close' : 'keep-alive'}\r\n#{extra_headers}\r\n#{payload}")
       break if close
     end
   ensure
