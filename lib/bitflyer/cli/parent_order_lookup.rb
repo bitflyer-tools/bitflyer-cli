@@ -22,7 +22,7 @@ module Bitflyer
           return match if match
           return if orders.size < PAGE_SIZE
 
-          before = next_cursor(orders, before)
+          before = next_cursor(orders, before, state)
         end
       end
 
@@ -41,14 +41,14 @@ module Bitflyer
 
       private
 
-      def next_cursor(orders, before)
+      def next_cursor(orders, before, state)
         ids = orders.map { |order| order['id'] }
         if ids.all? { |id| id.is_a?(Integer) && id.positive? }
           cursor = ids.min
           return cursor if before.nil? || cursor < before
         end
 
-        raise LookupFailed, 'Could not paginate active parent orders.'
+        raise LookupFailed, "Could not paginate #{state.downcase} parent orders."
       end
 
       def parent_orders(state, before)
