@@ -114,7 +114,7 @@ describe StopByRangeCommand, :stop_state do
 
     it 'uses the original record and lock slot to block resubmission after reordering stop fields' do
       directory = Bitflyer::Cli::StopSubmission.state_directory
-      key = Digest::SHA256.hexdigest(['key', 'FX_BTC_JPY', 'STOP', 'SELL', 995_000.0, 0.2].to_json)
+      key = Digest::SHA256.hexdigest(['key', 'FX_BTC_JPY', 'STOP', 'SELL'].to_json)
       record_path = File.join(directory, key)
       acceptance_id = response.fetch('parent_order_acceptance_id')
       FileUtils.mkdir_p(directory)
@@ -418,10 +418,35 @@ describe StopByRangeCommand, :stop_state do
       [first, second].compact.each { |thread| thread.kill.join }
     end
 
-    it 'allows stops with different parameters while acceptance is pending' do
+    it 'blocks a stop at a different range while an earlier submission is unresolved' do
       expect { run }.to output(/Set stop order/).to_stdout
-      expect { run(6000) }.to output(/Set stop order SELL \/ 994000/).to_stdout
-      expect(private_client).to have_received(:send_parent_order).twice
+      expect { run(6000) }.to output(/Previous stop order SELL \/ 994000.*awaiting confirmation/).to_stdout
+      expect(private_client).to have_received(:send_parent_order).once
+    end
+
+    it 'submits once and reports the pending submission across ranges when both runs overlap' do
+      first = second = nil
+      posting = Queue.new
+      continue_post = Queue.new
+
+      allow(private_client).to receive(:send_parent_order) do
+        posting << true
+        continue_post.pop
+        post_response
+      end
+
+      expect do
+        Timeout.timeout(5) do
+          first = Thread.new { run(5000) }
+          posting.pop
+          second = Thread.new { run(6000) }
+          continue_post << true
+          [first, second].each(&:value)
+        end
+      end.to output(/Set stop order.*Previous stop order.*awaiting confirmation/m).to_stdout
+      expect(private_client).to have_received(:send_parent_order).once
+    ensure
+      [first, second].compact.each { |thread| thread.kill.join }
     end
 
     it 'keeps an unverified stop record when the acceptance ID is a non-breaking space' do
