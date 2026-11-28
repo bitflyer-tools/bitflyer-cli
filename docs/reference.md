@@ -10,7 +10,7 @@ All market and account operations use the BTC-CFD/JPY product
 | --- | --- |
 | `bitflyer summary` | Live execution price, net position, spread, and estimated balance. Press Ctrl+C to exit. |
 | `bitflyer open_orders` | Active child orders and parent strategies. |
-| `bitflyer executions` | Up to 100 recent account fills. Use either `--child-order-id ID` or `--child-order-acceptance-id ID` to filter by order. |
+| `bitflyer executions` | Up to 100 recent account fills. Use either `--child-order-id ID` or `--child-order-acceptance-id ID` to filter by order. Add `--all` to page through the full history, and `--export PATH` to write CSV instead of a table. |
 
 ## Submit or cancel orders
 

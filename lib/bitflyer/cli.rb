@@ -44,9 +44,14 @@ module Bitflyer
       desc 'executions', 'show recent account executions for FX_BTC_JPY'
       method_option :child_order_id, type: :string, desc: 'Child order ID from open_orders'
       method_option :child_order_acceptance_id, type: :string, desc: 'Child order acceptance ID from TWAP output'
+      method_option :all, type: :boolean, default: false,
+                          desc: 'Page through the full execution history instead of the latest page'
+      method_option :export, type: :string, banner: 'PATH',
+                             desc: 'Write executions as CSV to PATH instead of printing a table'
       def executions
         ExecutionsCommand.new.run(child_order_id: options[:child_order_id],
-                                  child_order_acceptance_id: options[:child_order_acceptance_id])
+                                  child_order_acceptance_id: options[:child_order_acceptance_id],
+                                  all: options[:all], export: options[:export])
       end
 
       desc 'open_orders', 'show active child orders and parent strategies'
