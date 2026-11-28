@@ -26,6 +26,58 @@ describe 'Coordinating protective stops with counter trades', :stop_state, :coun
     CounterTradeCommand.new.run
   end
 
+  context 'with ten pages of active parent orders' do
+    let(:last_page) { parent_order_page(100) }
+
+    before do
+      allow(private_client).to receive(:parent_orders) do |parent_order_state:, count:, before:, product_code:|
+        expect([parent_order_state, count, product_code]).to eq(['ACTIVE', 100, 'FX_BTC_JPY'])
+        highest_id = before ? before - 1 : 1000
+        highest_id == 100 ? last_page : parent_order_page(highest_id)
+      end
+    end
+
+    def parent_order_page(highest_id)
+      highest_id.downto(highest_id - 99).map { |id| { 'id' => id, 'parent_order_type' => 'IFDOCO' } }
+    end
+
+    { run_stop: StopByRangeCommand::LookupFailed, run_counter_trade: Thor::Error }.each do |command, error|
+      it "blocks #{command} after ten full pages and releases the product lock" do
+        expect { public_send(command) }.to raise_error(error, /limit of 10 page requests/)
+        expect(private_client).to have_received(:parent_orders).exactly(10).times
+        expect(private_client).not_to have_received(:send_child_order)
+        expect(private_client).not_to have_received(:send_parent_order)
+
+        lock_path = File.join(Bitflyer::Cli::CounterTradeSubmission.state_directory, 'FX_BTC_JPY.json.lock')
+        File.open(lock_path, 'r+') do |file|
+          expect(file.flock(File::LOCK_EX | File::LOCK_NB)).to eq(0)
+        end
+      end
+    end
+
+    context 'when the last allowed page is short' do
+      let(:last_page) { super().take(1) }
+
+      it 'submits the stop after completing the scan' do
+        expect { run_stop }.to output(/Set stop order/).to_stdout
+        expect(private_client).to have_received(:parent_orders).exactly(10).times
+        expect(private_client).to have_received(:send_parent_order).once
+      end
+    end
+
+    context 'when the last allowed full page contains a protective stop' do
+      let(:last_page) do
+        super().tap { |page| page.last.merge!('parent_order_type' => 'STOP', 'side' => 'SELL', 'parent_order_id' => 'JCO-stop') }
+      end
+
+      it 'reports the matching stop' do
+        expect { run_counter_trade }.to raise_error(Thor::Error, /Active protective stop.*JCO-stop/)
+        expect(private_client).to have_received(:parent_orders).exactly(10).times
+        expect(private_client).not_to have_received(:send_child_order)
+      end
+    end
+  end
+
   it 'holds the same per-product lock for a counter trade and a stop submission' do
     thread = nil
     holding_lock = Queue.new

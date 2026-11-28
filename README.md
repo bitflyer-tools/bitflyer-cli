@@ -145,6 +145,10 @@ market. An active standalone stop on the offset side or an unverifiable lookup
 blocks the trade. The command prints the conflicting order ID when available so
 you can resolve the order before retrying.
 
+Both `stop_by_range` and `counter_trade` request up to 10 pages of active parent
+orders. If the scan needs another page to determine whether a stop exists, the
+command reports a lookup error and exits with status 1 without submitting an order.
+
 `bitflyer counter_trade` coordinates runs for each product on the same machine
 when they share an OS account and state directory. The command saves a record
 under `$XDG_STATE_HOME/bitflyer-cli/counter-trades` (default
