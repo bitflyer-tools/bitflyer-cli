@@ -15,16 +15,21 @@ module Bitflyer
 
       def classify(order)
         side = @stop.fetch(:side)
-        return if SKIPPED.include?(ActiveStopClassifier.from_list(order, side))
-        return :conflict if different_size?(order['size'])
+        classification = ActiveStopClassifier.from_list(order, side)
+        return if SKIPPED.include?(classification)
+        return :conflict if classification == :same_side && different_size?(order['size'])
 
         parameter = @classifier.resolve(order)
         return unless parameter && parameter['side'] == side
 
-        @stop.all? { |key, value| parameter[key.to_s] == value } ? :exact : :conflict
+        exact_match?(parameter) ? :exact : :conflict
       end
 
       private
+
+      def exact_match?(parameter)
+        @stop.all? { |key, value| parameter[key.to_s] == value }
+      end
 
       def different_size?(size)
         raw = size.to_s
