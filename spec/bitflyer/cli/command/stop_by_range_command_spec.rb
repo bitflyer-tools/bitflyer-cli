@@ -74,7 +74,7 @@ describe StopByRangeCommand, :stop_state do
 
     [0, -5000].each do |range|
       it "rejects a range of #{range} without sending an order" do
-        expect { run(range) }.to raise_error(ArgumentError, 'Range must be positive')
+        expect { run(range) }.to raise_error(Thor::Error, 'Range must be positive')
         expect(private_client).not_to have_received(:send_parent_order)
       end
     end
@@ -367,6 +367,21 @@ describe StopByRangeCommand, :stop_state do
       expect(private_client).to have_received(:send_parent_order).once
     end
 
+    context 'with a malicious parent order acceptance ID reconciled as completed' do
+      let(:response) { { 'parent_order_acceptance_id' => "JRF\r\n\e[2J" } }
+
+      it 'escapes terminal controls in the previous stop order ID when reconciliation completes' do
+        expect { run }.to output(/Set stop order/).to_stdout
+        allow(private_client).to receive(:parent_orders)
+          .with(hash_including(parent_order_state: 'COMPLETED')).and_return([response])
+        acceptance_id = response.fetch('parent_order_acceptance_id')
+        escaped_id = Regexp.escape(Bitflyer::Cli::TerminalText.escape(acceptance_id))
+
+        expect { run }.to output(/Previous stop order.*\(#{escaped_id}\): COMPLETED/).to_stdout
+        expect(private_client).to have_received(:send_parent_order).once
+      end
+    end
+
     it 'does not resubmit when the position disappears while another invocation checks completion' do
       first = second = nil
       checking_completion = Queue.new
@@ -491,6 +506,17 @@ describe StopByRangeCommand, :stop_state do
                                        parent_order: { 'status' => -200 })
 
         expect { run }.to raise_error(StopByRangeCommand::LookupFailed, /JCO-stop/)
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
+      it 'escapes terminal controls in a malformed parent order detail lookup failure' do
+        id = "JCO\r\n\e[2J"
+        order = parent.except('parent_order_type').merge('parent_order_id' => id)
+        stub_responses(private_client, parent_orders: [order], parent_order: { 'status' => -200 })
+        escaped_id = Regexp.escape(Bitflyer::Cli::TerminalText.escape(id))
+
+        expect { run }
+          .to raise_error(StopByRangeCommand::LookupFailed, /Failed to look up parent order #{escaped_id}/)
         expect(private_client).not_to have_received(:send_parent_order)
       end
 

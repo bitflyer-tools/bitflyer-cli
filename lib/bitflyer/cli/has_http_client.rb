@@ -34,12 +34,28 @@ module HasHTTPClient
 
   def submit_single_order(acceptance_key)
     response = yield persistent_http_client
-    Bitflyer::Cli::OrderRejected.check_submission!(response, acceptance_key)
+    classification = Bitflyer::Cli::OrderRejected.classify(response, acceptance_key)
+    handle_submission_classification(classification, response)
   rescue Timeout::Error, SocketError, SystemCallError, IOError,
          OpenSSL::SSL::SSLError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError => e
     raise Bitflyer::Cli::OrderRejected::Unverified, "Could not verify order acceptance: #{e.message}"
   ensure
     close_persistent_http_client
+  end
+
+  def handle_submission_classification(classification, response)
+    case classification
+    when :rejected
+      Bitflyer::Cli::OrderRejected.raise_rejection!(response.body)
+    when :unverified
+      raise Bitflyer::Cli::OrderRejected::Unverified, unverified_submission_message(response.status)
+    end
+  end
+
+  def unverified_submission_message(status)
+    return 'Could not verify order acceptance.' if status.between?(200, 299)
+
+    "Could not verify order acceptance (HTTP #{status})."
   end
 
   def fetch_ticker_price(field, client:)

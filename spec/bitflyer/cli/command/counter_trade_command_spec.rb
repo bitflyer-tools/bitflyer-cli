@@ -188,6 +188,16 @@ describe CounterTradeCommand, :counter_trade_state do
       expect(private_client).not_to have_received(:send_child_order)
     end
 
+    it 'escapes terminal controls in the ID for a malformed detail lookup failure' do
+      id = "JCO\r\n\e[2J"
+      stub_responses(private_client, parent_orders: [stop.merge('side' => nil, 'parent_order_id' => id)],
+                                     parent_order: { 'status' => -200 })
+
+      expect { run_command }
+        .to raise_error(Thor::Error, /Could not verify active protective stops.*JCO\\r\\n\\e\[2J/)
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+
     it 'blocks a same-side stop resolved from its detail when the list side is missing' do
       stub_responses(private_client, parent_orders: [stop.merge('side' => nil)],
                                      parent_order: { 'order_method' => 'SIMPLE', 'parameters' => [
