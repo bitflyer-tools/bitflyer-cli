@@ -848,6 +848,24 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       expect(transport).not_to have_received(:request).with(instance_of(Net::HTTP::Post))
     end
 
+    it 'reports the canceled history pagination failure and retains the pending record' do
+      stop = { product_code: 'FX_BTC_JPY', condition_type: 'STOP', side: 'SELL', trigger_price: 995_000.0, size: 0.1 }
+      submission = Bitflyer::Cli::StopSubmission.new('key', stop)
+      File.write(submission.path, 'accepted')
+      orders = (1..100).map { |id| { id: id, parent_order_acceptance_id: 'another-order' } }
+      page = instance_double(Net::HTTPOK, code: '200', body: orders.to_json)
+      canceled_history = an_object_having_attributes(path: %r{\A/v1/me/getparentorders\?.*parent_order_state=CANCELED})
+      allow(transport).to receive(:request).with(canceled_history).and_return(page)
+      diagnostic = "Could not paginate canceled parent orders. Submission record: #{submission.path}\n"
+
+      expect do
+        expect { run_cli(*args) }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      end.to output(diagnostic).to_stderr.and output('').to_stdout
+      expect(transport).to have_received(:request).with(canceled_history).twice
+      expect(File.read(submission.path)).to eq('accepted')
+      expect(transport).not_to have_received(:request).with(instance_of(Net::HTTP::Post))
+    end
+
     def record_path
       %r{#{Regexp.escape(@stop_state_directory)}/[0-9a-f]{64}}
     end

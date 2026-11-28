@@ -74,13 +74,19 @@ module Bitflyer
       private
 
       def terminal_state(pending, lookup)
-        matches_pending = ->(entry) { entry[ACCEPTANCE_ID] == pending }
-        state, order = lookup.find_across_states(TERMINAL_STATES, max_requests: HISTORY_REQUEST_LIMIT, &matches_pending)
+        state, order = find_terminal_order(pending, lookup)
         confirm_zero_fill!(order, state, pending) if order && state != 'COMPLETED'
         state
+      end
+
+      def find_terminal_order(pending, lookup)
+        matches_pending = ->(entry) { entry[ACCEPTANCE_ID] == pending }
+        lookup.find_across_states(TERMINAL_STATES, max_requests: HISTORY_REQUEST_LIMIT, &matches_pending)
       rescue ParentOrderLookup::RequestLimitExceeded
         raise Thor::Error, "Stop order #{TerminalText.escape(pending)} still requires reconciliation after " \
                            "#{HISTORY_REQUEST_LIMIT} history requests. Submission record: #{path}"
+      rescue ParentOrderLookup::LookupFailed => e
+        raise ParentOrderLookup::LookupFailed, "#{e.message} Submission record: #{path}"
       rescue *PersistentHTTPClient::COMMUNICATION_ERRORS => e
         raise ParentOrderLookup::LookupFailed,
               "Failed to look up terminal parent orders: #{e.message}. Submission record: #{path}"
