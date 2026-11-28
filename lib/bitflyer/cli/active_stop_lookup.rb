@@ -13,7 +13,7 @@ module Bitflyer
       def find(stop)
         matcher = StopOrderMatcher.new(@client, stop)
         conflicts = []
-        exact = @lookup.find('ACTIVE') do |entry|
+        exact = @lookup.find_active do |entry|
           match = matcher.classify(entry)
           next false unless match
           next true if match == :exact
