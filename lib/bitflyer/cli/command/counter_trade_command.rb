@@ -75,8 +75,15 @@ class CounterTradeCommand
 
     side = position.size.positive? ? 'SELL' : 'BUY'
     Bitflyer::Cli::ProtectiveStopCheck.new(persistent_http_client, PRODUCT_CODE).verify!(side)
+    verify_exposure!(position.size)
     submit_order(submission, position.size, side, size)
     puts "Clear position #{side} / #{size}"
+  end
+
+  def verify_exposure!(exposure)
+    return if fetch_position.size == exposure
+
+    raise Thor::Error, 'Net exposure changed during the protective stop check. Counter trade aborted.'
   end
 
   def submit_order(submission, exposure, side, size)

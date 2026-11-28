@@ -160,7 +160,20 @@ describe CounterTradeCommand, :counter_trade_state do
       stub_responses(private_client, parent_orders: [stop.merge('side' => 'BUY'), { 'parent_order_type' => 'IFDOCO' }])
 
       expect { run_command }.to output("Clear position SELL / 0.2\n").to_stdout
-      expect(private_client).to have_received(:send_child_order).once
+      expect(private_client).to have_received(:send_child_order)
+        .with(product_code: 'FX_BTC_JPY', child_order_type: 'MARKET', side: 'SELL', size: 0.2).once
+    end
+
+    it 'aborts without recording or submitting an offset when a stop flattens the position during lookup' do
+      allow(private_client).to receive(:parent_orders) do
+        allow(private_client).to receive(:positions).and_return([])
+        []
+      end
+
+      expect { run_command }.to raise_error(Thor::Error, /Net exposure changed/)
+      expect(private_client).not_to have_received(:send_child_order)
+      path = File.join(Bitflyer::Cli::CounterTradeSubmission.state_directory, 'FX_BTC_JPY.json')
+      expect(File).not_to exist(path)
     end
 
     it 'blocks even a smaller protective stop on a later page' do
@@ -388,7 +401,7 @@ describe CounterTradeCommand, :counter_trade_state do
       allow(private_client).to receive(:child_order_by_acceptance_id)
         .with(product_code: 'FX_BTC_JPY', child_order_acceptance_id: acceptance_id).and_return([completed])
       allow(private_client).to receive(:positions)
-        .and_return(positions, { 'status' => -200, 'error_message' => 'Positions unavailable' }, [])
+        .and_return(positions, positions, { 'status' => -200, 'error_message' => 'Positions unavailable' }, [])
 
       expect { described_class.new.run }.to output(/Clear position/).to_stdout
       expect { described_class.new.run }
