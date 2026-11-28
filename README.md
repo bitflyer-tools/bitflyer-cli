@@ -44,7 +44,9 @@ Run the account summary to view your position and balance alongside the live
 bitflyer summary
 ```
 
-Press `Ctrl+C` to exit the live display.
+![Example terminal output from bitflyer summary showing the execution price, net position, spread, and estimated balance](docs/images/summary-demo.png)
+
+The example uses sample data. Press `Ctrl+C` to exit the live display.
 
 See [Getting started](docs/getting-started.md) for a walkthrough of the
 summary display and open orders.
