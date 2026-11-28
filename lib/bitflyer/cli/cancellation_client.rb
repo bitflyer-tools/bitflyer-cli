@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'bitflyer/cli/order_rejected'
 require 'bitflyer/cli/persistent_http_client'
 require 'bitflyer/cli/terminal_text'
 
@@ -30,8 +31,12 @@ class CancellationClient
     body = response.body.to_s
     return Result.new(:accepted, code, nil, nil) if code == '200' && body.empty?
 
+    classify_rejection(code, body)
+  end
+
+  def classify_rejection(code, body)
     unverified = Result.new(:unverified, code, nil, nil)
-    return unverified if unverified.unverified_http_status?
+    return unverified unless Bitflyer::Cli::OrderRejected.rejection_status?(code.to_i)
 
     error = parse_error(body)
     status = error['status']
