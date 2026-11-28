@@ -27,15 +27,16 @@ module Bitflyer
       # Returns the sole STOP parameter (string keys) for a standalone order on
       # @product_code, or nil if the detail shows it isn't one.
       def resolve(order)
-        detail = parent_order_detail(order.fetch('parent_order_id'))
+        standalone_stop(parent_order_detail(order.fetch('parent_order_id')))
+      end
+
+      def standalone_stop(detail)
         parameters = detail.fetch('parameters')
         return unless detail['order_method'] == 'SIMPLE' && parameters.one?
 
         parameter = parameters.first
         parameter if parameter['product_code'] == @product_code && parameter['condition_type'] == 'STOP'
       end
-
-      private
 
       def parent_order_detail(order_id)
         detail = @client.parent_order(parent_order_id: order_id)

@@ -157,7 +157,7 @@ describe CounterTradeCommand, :counter_trade_state do
     end
 
     it 'allows an offset when the active orders contain no protective stop for the position' do
-      stub_responses(private_client, parent_orders: [stop.merge('side' => 'BUY'), { 'parent_order_type' => 'IFDOCO' }])
+      stub_responses(private_client, parent_orders: [stop.merge('side' => 'BUY'), { 'parent_order_type' => 'OCO' }])
 
       expect { run_command }.to output("Clear position SELL / 0.2\n").to_stdout
       expect(private_client).to have_received(:send_child_order).once

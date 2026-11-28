@@ -130,9 +130,11 @@ position it fetched may not yet reflect the offset.
 ### Offset a position
 
 Before sending an offset, `counter_trade` checks active parent orders for the
-market. An active standalone stop on the offset side or an unverifiable lookup
-blocks the trade. The command prints the conflicting order ID when available so
-you can resolve the order before retrying.
+market. An active standalone stop or a configured exit of an active IFDOCO
+strategy on the offset side blocks the trade. IFDOCO details show the configured
+legs, so the check also covers conditional exits awaiting activation. An
+unverifiable lookup blocks the trade. The command prints the parent order ID
+when available so you can resolve the order before retrying.
 
 `bitflyer counter_trade` coordinates runs for each product on the same machine
 when they share an OS account and state directory. The command saves a record
