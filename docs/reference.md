@@ -10,7 +10,7 @@ All market and account operations use the BTC-CFD/JPY product
 | --- | --- |
 | `bitflyer summary` | Live execution price, net position, spread, and estimated balance. Press Ctrl+C to exit. Add `--notify-webhook URL` with `--alert-price PRICE` and/or `--alert-balance BALANCE` to post a one-shot webhook notification the moment the live price or the estimated balance crosses that value. |
 | `bitflyer open_orders` | Active child orders and parent strategies. |
-| `bitflyer executions` | Up to 100 recent account fills. Use either `--child-order-id ID` or `--child-order-acceptance-id ID` to filter by order. |
+| `bitflyer executions` | Up to 100 recent account fills. Use either `--child-order-id ID` or `--child-order-acceptance-id ID` to filter by order. Add `--all` to page through the full history, and `--export PATH` to write CSV instead of a table. |
 
 `--notify-webhook` posts a JSON body with `text` and `content` fields, compatible
 with Slack and Discord incoming webhooks. The URL must use HTTP or HTTPS.
