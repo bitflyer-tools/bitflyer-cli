@@ -198,8 +198,19 @@ bitflyer executions --child-order-id JOR20150707-084555-022523
 bitflyer executions --child-order-acceptance-id JRF20150707-050237-639234
 ```
 
-An empty page prints `No executions found.` A failed lookup prints an error
-to stderr and exits unsuccessfully.
+Add `--all` to page backward through the entire execution history instead of
+just the latest 100 fills, and `--export PATH` to write the result as CSV
+(with a header row, in the same column order as the table) instead of
+printing a table. Combine both to export the full history, for example for
+bookkeeping or Japan's annual report of realized gains on margin FX trading:
+
+```sh
+bitflyer executions --all --export executions.csv
+```
+
+An empty page prints `No executions found.` A failed lookup, including
+exceeding the pagination request limit, prints an error to stderr and exits
+unsuccessfully.
 
 ## Troubleshooting
 
