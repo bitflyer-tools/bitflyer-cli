@@ -38,7 +38,7 @@ All market and account operations use the BTC-CFD/JPY product
 | --- | --- |
 | `BITFLYER_API_KEY` | API key for private requests. |
 | `BITFLYER_API_SECRET` | API secret for private requests. |
-| `XDG_STATE_HOME` | Base directory for stop and counter-trade submission records. The subdirectories are `bitflyer-cli/stops` and `bitflyer-cli/counter-trades`. When unset or empty, the base directory is `~/.local/state`. |
+| `XDG_STATE_HOME` | Absolute base directory for stop and counter-trade submission records. The subdirectories are `bitflyer-cli/stops` and `bitflyer-cli/counter-trades`. When unset or empty, the base directory is `~/.local/state`. |
 
 Help and both dry-run modes work without API credentials. Order and account
 operations require credentials with the relevant bitFlyer permissions.

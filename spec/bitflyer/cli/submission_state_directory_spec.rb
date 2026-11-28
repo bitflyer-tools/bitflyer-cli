@@ -11,17 +11,24 @@ describe Bitflyer::Cli::SubmissionStateDirectory do
       ENV['XDG_STATE_HOME'] = original
     end
 
-    it 'joins the XDG state home with bitflyer-cli and the given segments' do
+    it 'selects the same absolute state directory from different working directories' do
       ENV['XDG_STATE_HOME'] = '/custom/state'
 
-      expect(described_class.under('stops')).to eq('/custom/state/bitflyer-cli/stops')
+      Dir.mktmpdir do |directory|
+        paths = [Dir.pwd, directory].map do |working_directory|
+          Dir.chdir(working_directory) { described_class.under('stops') }
+        end
+        expect(paths).to all(eq('/custom/state/bitflyer-cli/stops'))
+      end
     end
 
-    it 'falls back to ~/.local/state when XDG_STATE_HOME is unset' do
-      ENV['XDG_STATE_HOME'] = nil
+    { unset: nil, empty: '' }.each do |setting, value|
+      it "falls back to ~/.local/state when XDG_STATE_HOME is #{setting}" do
+        ENV['XDG_STATE_HOME'] = value
 
-      expect(described_class.under('counter-trades'))
-        .to eq(File.join(File.expand_path('~/.local/state'), 'bitflyer-cli', 'counter-trades'))
+        expect(described_class.under('counter-trades'))
+          .to eq(File.join(File.expand_path('~/.local/state'), 'bitflyer-cli', 'counter-trades'))
+      end
     end
   end
 

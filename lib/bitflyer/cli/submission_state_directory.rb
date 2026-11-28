@@ -9,6 +9,10 @@ module Bitflyer
       def self.under(*segments)
         root = ENV.fetch('XDG_STATE_HOME', nil)
         root = File.expand_path('~/.local/state') if root.to_s.empty?
+        unless Pathname.new(root).absolute?
+          raise Thor::Error, 'Set XDG_STATE_HOME to an absolute path or unset it to use ~/.local/state.'
+        end
+
         File.join(root, 'bitflyer-cli', *segments)
       end
 

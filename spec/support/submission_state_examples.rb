@@ -1,4 +1,18 @@
 RSpec.shared_examples 'rejects unsafe submission state' do |store, send_order|
+  it 'rejects a relative XDG_STATE_HOME before sending an order' do
+    allow(ENV).to receive(:fetch).with('XDG_STATE_HOME', nil).and_return('state')
+    [Bitflyer::Cli::CounterTradeSubmission, store].uniq.each do |submission|
+      allow(submission).to receive(:state_directory).and_call_original
+    end
+
+    Dir.mktmpdir do |directory|
+      Dir.chdir(directory) do
+        expect { run_command }.to raise_error(Thor::Error, /Set XDG_STATE_HOME to an absolute path or unset it/)
+        expect(private_client).not_to have_received(send_order)
+      end
+    end
+  end
+
   [0o770, 0o707, 0o1777].each do |mode|
     it "rejects a writable submission directory with mode #{mode.to_s(8)} before sending an order" do
       directory = store.state_directory
