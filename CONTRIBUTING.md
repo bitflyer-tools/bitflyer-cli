@@ -24,6 +24,12 @@ bash test/release_bump.sh
 
 The specs use client doubles and run without bitFlyer API credentials.
 
+To apply the formatting rules checked by CI, run:
+
+```sh
+bundle exec rubocop --fix-layout
+```
+
 CI runs RSpec on Ruby 3.3 with the default bundle. To run the
 coverage check used on Ruby 3.3 and 3.4, use the coverage Gemfile:
 
