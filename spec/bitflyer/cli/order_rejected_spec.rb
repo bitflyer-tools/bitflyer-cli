@@ -43,11 +43,13 @@ describe Bitflyer::Cli::OrderRejected do
       it { is_expected.to eq(:rejected) }
     end
 
-    context 'when the HTTP status is 408 and the exchange status is negative' do
-      let(:status) { 408 }
-      let(:body) { { 'status' => -205 } }
+    [307, 408, 503].each do |http_status|
+      context "when the HTTP status is #{http_status} and the exchange status is negative" do
+        let(:status) { http_status }
+        let(:body) { { 'status' => -205, 'error_message' => 'Order error' } }
 
-      it { is_expected.to eq(:unverified) }
+        it { is_expected.to eq(:unverified) }
+      end
     end
 
     context 'when the acceptance ID is present but blank' do

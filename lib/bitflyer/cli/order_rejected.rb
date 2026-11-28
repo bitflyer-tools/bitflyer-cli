@@ -13,11 +13,14 @@ module Bitflyer
 
         status = response.status
         acceptance_id = body[acceptance_key]
-        success = status.between?(200, 299)
-        return :accepted if success && valid_acceptance?(acceptance_id, body)
-        return :rejected if (success || client_rejection_status?(status)) && rejected?(acceptance_id, body)
+        return :accepted if status.between?(200, 299) && valid_acceptance?(acceptance_id, body)
+        return :rejected if rejection_status?(status) && rejected?(acceptance_id, body)
 
         :unverified
+      end
+
+      def self.rejection_status?(status)
+        status.between?(200, 299) || (status.between?(400, 499) && status != 408)
       end
 
       def self.acceptance_id?(id)
@@ -50,11 +53,6 @@ module Bitflyer
         status.is_a?(Numeric) && status.negative?
       end
       private_class_method :negative_status?
-
-      def self.client_rejection_status?(status)
-        status.between?(400, 499) && status != 408
-      end
-      private_class_method :client_rejection_status?
     end
   end
 end
