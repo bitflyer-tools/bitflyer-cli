@@ -20,7 +20,9 @@ module Bitflyer
         true
       end
 
-      desc 'cancel_all', 'cancel all of orders'
+      desc 'cancel_all', 'request cancellation of all child orders for FX_BTC_JPY'
+      long_desc 'Request cancellation of all child orders for FX_BTC_JPY. ' \
+                'To cancel a parent strategy, use bitflyer cancel_order parent ID --confirm-parent.'
       def cancel_all
         CancelAllCommand.new.run
       end

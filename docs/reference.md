@@ -22,7 +22,7 @@ All market and account operations use the BTC-CFD/JPY product
 | `bitflyer stop_by_range` | `--range` (`-r`) | Places a protective stop based on the current position. |
 | `bitflyer counter_trade` | | Submits a market order to offset nonzero net exposure. |
 | `bitflyer cancel_order` | `TYPE ID`, plus `--confirm-parent` when `TYPE` is `parent` | Requests cancellation of a child order or a parent strategy and its associated orders. Use `child` or `parent` for `TYPE`. |
-| `bitflyer cancel_all` | | Sends a cancel-all request for `FX_BTC_JPY`. |
+| `bitflyer cancel_all` | | Requests cancellation of all child orders for `FX_BTC_JPY`. To cancel a parent strategy, use `bitflyer cancel_order parent ID --confirm-parent`. |
 
 - `--amount` is a positive, finite size in BTC. For TWAP it is the size of
   each slice.

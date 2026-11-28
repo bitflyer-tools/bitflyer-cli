@@ -55,7 +55,7 @@ See the [command reference](docs/reference.md) for options and environment varia
 
 ```
 Commands:
-  bitflyer cancel_all                                          # cancel all of orders
+  bitflyer cancel_all                                          # request cancellation of all child orders for FX_BTC_JPY
   bitflyer cancel_order TYPE ID [--confirm-parent]             # request cancellation of one child order or parent strategy
   bitflyer counter_trade                                       # offset nonzero net exposure with a market order
   bitflyer executions                                          # show recent account executions for FX_BTC_JPY
@@ -161,6 +161,10 @@ Run `bitflyer open_orders` to see active orders for `FX_BTC_JPY`. The child orde
 shows the remaining size after any partial fills. The parent strategy list shows
 the strategy type, such as STOP or IFDOCO, and the order date. The list uses the
 exchange's default result limit.
+
+Run `bitflyer cancel_all` to request cancellation of all child orders for
+`FX_BTC_JPY`. To cancel a parent strategy, use
+`bitflyer cancel_order parent ID --confirm-parent`.
 
 Copy the order ID from the relevant section and specify its type explicitly.
 
