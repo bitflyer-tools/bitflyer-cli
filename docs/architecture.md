@@ -55,7 +55,7 @@ record.
   [`CounterTradeTerminalOrderLookup`](../lib/bitflyer/cli/counter_trade_terminal_order_lookup.rb)
   fetches that order's terminal state, and
   [`ProtectiveStopCheck`](../lib/bitflyer/cli/protective_stop_check.rb) blocks the trade
-  while an active protective stop could conflict with it.
+  while an active protective stop or IFDOCO exit could conflict with it.
 - Both commands page through parent orders with
   [`ParentOrderLookup`](../lib/bitflyer/cli/parent_order_lookup.rb), which raises if the
   exchange's pagination cursor stops decreasing or a lookup exceeds its request limit.

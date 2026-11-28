@@ -271,6 +271,53 @@ describe 'Persistent exchange HTTPS' do
       ])
     end
 
+    context 'with an active IFDOCO strategy' do
+      let(:parent_id) { 'JCO-strategy' }
+      let(:detail_path) { "/v1/me/getparentorder?parent_order_id=#{parent_id}" }
+      let(:lookup_requests) do
+        [[1, 'GET', positions_path], [1, 'GET', active_parent_orders_path], [1, 'GET', detail_path]]
+      end
+
+      %w[BUY SELL].zip(%w[SELL BUY]).each do |entry_side, exit_side|
+        it "reports the parent ID and sends no POST after a filled #{entry_side} entry with #{exit_side} exits" do
+          positions = [position(side: entry_side, price: 1_000_000, size: 0.1)]
+          start_ifdoco_server(positions, ifdoco_detail(entry_side, exit_side))
+
+          expect { CounterTradeCommand.new.run }.to raise_error(Thor::Error, /Active IFDOCO exit.*JCO-strategy/)
+          expect_counter_trade_requests(lookup_requests)
+        end
+      end
+
+      it 'submits the offset when the verified exits are on the other side' do
+        start_ifdoco_server(position_rows, ifdoco_detail('SELL', 'BUY'))
+
+        expect { CounterTradeCommand.new.run }.to output("Clear position SELL / 0.1\n").to_stdout
+        expect_counter_trade_requests(lookup_requests + [[1, 'POST', order_path]])
+      end
+
+      it 'reports the parent ID and sends no POST when exit details are incomplete' do
+        start_ifdoco_server(position_rows, { order_method: 'IFDOCO', parameters: [] })
+
+        expect { CounterTradeCommand.new.run }.to raise_error(Thor::Error, /Could not verify.*IFDOCO.*JCO-strategy/)
+        expect_counter_trade_requests(lookup_requests)
+      end
+
+      def start_ifdoco_server(positions, detail)
+        parent = { parent_order_id: parent_id, parent_order_type: 'IFDOCO', parent_order_state: 'ACTIVE',
+                   size: 0.1, executed_size: 0.1 }
+        responses = { positions_path => positions, active_parent_orders_path => [parent],
+                      detail_path => detail, order_path => acceptance }
+        start_server { |path| [responses.fetch(path), false] }
+      end
+
+      def ifdoco_detail(entry_side, exit_side)
+        legs = [['MARKET', entry_side], ['LIMIT', exit_side], ['STOP', exit_side]].map do |condition, side|
+          { product_code: 'FX_BTC_JPY', condition_type: condition, side: side, size: 0.1 }
+        end
+        { parent_order_id: parent_id, order_method: 'IFDOCO', parameters: legs }
+      end
+    end
+
     {
       '401 Unauthorized' => 'Invalid API key',
       '503 Service Unavailable' => 'Positions unavailable'
