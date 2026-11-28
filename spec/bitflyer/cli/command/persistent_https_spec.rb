@@ -260,14 +260,15 @@ describe 'Persistent exchange HTTPS' do
     end
     let(:submission) { Bitflyer::Cli::CounterTradeSubmission.new('FX_BTC_JPY', 'key') }
 
-    it 'reads the position, checks protective stops, and submits the offset on one TLS connection' do
+    it 'rechecks the position after protective stops and submits the offset on one TLS connection' do
       responses = { positions_path => position_rows, active_parent_orders_path => [], order_path => acceptance }
       start_server { |path| [responses.fetch(path), false] }
 
       expect { CounterTradeCommand.new.run }.to output("Clear position SELL / 0.1\n").to_stdout
 
       expect_counter_trade_requests([
-        [1, 'GET', positions_path], [1, 'GET', active_parent_orders_path], [1, 'POST', order_path]
+        [1, 'GET', positions_path], [1, 'GET', active_parent_orders_path], [1, 'GET', positions_path],
+        [1, 'POST', order_path]
       ])
     end
 

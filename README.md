@@ -132,7 +132,8 @@ position it fetched may not yet reflect the offset.
 Before sending an offset, `counter_trade` checks active parent orders for the
 market. An active standalone stop on the offset side or an unverifiable lookup
 blocks the trade. The command prints the conflicting order ID when available so
-you can resolve the order before retrying.
+you can resolve the order before retrying. After checking for stops, the command
+reads net exposure again and aborts if it has changed.
 
 `bitflyer counter_trade` coordinates runs for each product on the same machine
 when they share an OS account and state directory. The command saves a record
