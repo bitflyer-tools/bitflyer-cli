@@ -7,23 +7,18 @@ module Bitflyer
       class RequestLimitExceeded < StandardError; end
 
       PAGE_SIZE = 100
+      ACTIVE_REQUEST_LIMIT = 10
 
       def initialize(client, product_code)
         @client = client
         @product_code = product_code
       end
 
-      def find(state, before_page: nil, &match_order)
-        before = nil
-        loop do
-          before_page&.call
-          orders = parent_orders(state, before)
-          match = orders.find(&match_order)
-          return match if match
-          return if orders.size < PAGE_SIZE
-
-          before = next_cursor(orders, before)
-        end
+      def find_active(&)
+        _state, order = find_across_states(['ACTIVE'], max_requests: ACTIVE_REQUEST_LIMIT, &)
+        order
+      rescue RequestLimitExceeded
+        raise LookupFailed, "Active parent order lookup exceeded the limit of #{ACTIVE_REQUEST_LIMIT} page requests."
       end
 
       def find_across_states(states, max_requests:, &match_order)
@@ -40,6 +35,19 @@ module Bitflyer
       end
 
       private
+
+      def find(state, before_page:, &match_order)
+        before = nil
+        loop do
+          before_page.call
+          orders = parent_orders(state, before)
+          match = orders.find(&match_order)
+          return match if match
+          return if orders.size < PAGE_SIZE
+
+          before = next_cursor(orders, before)
+        end
+      end
 
       def next_cursor(orders, before)
         ids = orders.map { |order| order['id'] }
