@@ -15,7 +15,7 @@ module Bitflyer
       end
 
       def verify!(offset_side)
-        order = @lookup.find('ACTIVE') { |entry| protective_stop?(entry, offset_side) }
+        order = @lookup.find_active { |entry| protective_stop?(entry, offset_side) }
         return unless order
 
         raise Thor::Error, "Active protective stop#{order_identifier(order)} conflicts with the counter trade."
