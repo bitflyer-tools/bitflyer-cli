@@ -9,6 +9,15 @@ class CancellationClient
     def unverified_http_status?
       http_code == '408' || http_code.to_i.between?(500, 599)
     end
+
+    def failure_message(unverified_prefix, rejected_fallback)
+      case outcome
+      when :rejected
+        message.to_s.empty? ? rejected_fallback : message
+      when :unverified
+        http_code ? "#{unverified_prefix} (HTTP #{http_code})." : "#{unverified_prefix}."
+      end
+    end
   end
 
   def initialize(key, secret)

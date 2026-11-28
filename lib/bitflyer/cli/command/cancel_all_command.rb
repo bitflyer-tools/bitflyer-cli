@@ -21,10 +21,6 @@ class CancelAllCommand
   private
 
   def failure_message(result)
-    if result.outcome == :rejected
-      return result.message.empty? ? "Cancel-all request rejected (status #{result.exchange_status})" : result.message
-    end
-
-    result.http_code ? "#{UNVERIFIED} (HTTP #{result.http_code})." : "#{UNVERIFIED}."
+    result.failure_message(UNVERIFIED, "Cancel-all request rejected (status #{result.exchange_status})")
   end
 end
