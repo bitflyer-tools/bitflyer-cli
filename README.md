@@ -13,6 +13,8 @@ This market uses `FX_BTC_JPY` as its API product code.
 ## Features
 
 - Monitor the live execution price, net position, and estimated account balance.
+- Get a Slack/Discord-compatible webhook notification when a watched price or
+  balance threshold is crossed.
 - Review active orders and recent fills, and request order cancellations.
 - Place limit orders at the best price on the order book, schedule TWAP slices,
   and submit range-based stop and IFDOCO orders.
@@ -45,6 +47,15 @@ bitflyer summary
 ```
 
 Press `Ctrl+C` to exit the live display.
+
+Add `--notify-webhook URL` with `--alert-price PRICE` and/or
+`--alert-balance BALANCE` to post a Slack/Discord-compatible webhook
+notification when the live price or the estimated balance crosses that
+value, without needing to keep the terminal in view.
+
+```sh
+bitflyer summary --notify-webhook https://hooks.slack.com/services/... --alert-price 10000000 --alert-balance 50000
+```
 
 See [Getting started](docs/getting-started.md) for a walkthrough of the
 summary display and open orders.

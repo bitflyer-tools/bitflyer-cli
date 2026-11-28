@@ -44,6 +44,16 @@ bitflyer summary
 The display can show `Current: Stale` while it waits for its first price.
 Press `Ctrl+C` to return to the shell.
 
+Add `--notify-webhook URL` with `--alert-price PRICE` and/or
+`--alert-balance BALANCE` to get a one-time webhook notification (compatible
+with Slack and Discord incoming webhooks) when the live price or the
+estimated balance crosses that value, so you do not have to keep the terminal
+in view to catch it.
+
+```sh
+bitflyer summary --notify-webhook https://hooks.slack.com/services/... --alert-balance 50000
+```
+
 ## Check active orders
 
 ```sh

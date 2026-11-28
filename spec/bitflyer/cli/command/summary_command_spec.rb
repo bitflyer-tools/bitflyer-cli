@@ -524,6 +524,150 @@ describe SummaryCommand do
     end
   end
 
+  context 'with alert options configured' do
+    let(:notifier) { instance_double(Bitflyer::Cli::AlertNotifier, check: nil) }
+
+    it 'builds an AlertNotifier from the webhook and threshold options' do
+      expect(Bitflyer::Cli::AlertNotifier).to receive(:new)
+        .with(webhook_url: 'https://example.com/hook', alert_price: 1_000_000, alert_balance: 40_000)
+        .and_return(notifier)
+
+      described_class.new(notify_webhook: 'https://example.com/hook', alert_price: 1_000_000, alert_balance: 40_000)
+    end
+
+    it 'feeds the live price and the estimated balance to the notifier' do
+      expect(Bitflyer::Cli::AlertNotifier).to receive(:new).and_return(notifier)
+      command = described_class.new(notify_webhook: 'https://example.com/hook')
+      command.instance_variable_set(:@execution, [1_010_000.0, command.send(:monotonic_time)])
+
+      command.send(:evaluate_alerts)
+
+      expect(notifier).to have_received(:check).with(price: 1_010_000.0, balance: 51_000.to_d)
+    end
+
+    it 'passes a nil price and balance before any execution has arrived' do
+      expect(Bitflyer::Cli::AlertNotifier).to receive(:new).and_return(notifier)
+      command = described_class.new(notify_webhook: 'https://example.com/hook')
+
+      command.send(:evaluate_alerts)
+
+      expect(notifier).to have_received(:check).with(price: nil, balance: nil)
+    end
+
+    it 'evaluates alerts on each scheduled account refresh, not on every 0.1s frame' do
+      expect(Bitflyer::Cli::AlertNotifier).to receive(:new).and_return(notifier)
+      command = described_class.new(notify_webhook: 'https://example.com/hook')
+      opening_executions << [{ 'price' => 1_010_000 }]
+      allow(command).to receive(:start_feed).and_wrap_original { |start| start.call.tap(&:join) }
+      poller = nil
+      allow(Thread).to receive(:new) do |&poll|
+        poller = Fiber.new(&poll)
+        poller.resume
+        instance_double(Thread, kill: nil, join: nil)
+      end
+      allow(command).to receive(:sleep).with(5) { Fiber.yield }
+      expect(command).to receive(:sleep).with(0.1).exactly(2).times.and_invoke(
+        ->(_) { poller.resume },
+        ->(_) { raise Interrupt }
+      )
+
+      capture_stdout { command.run }
+
+      expect(notifier).to have_received(:check).with(price: 1_010_000.0, balance: 51_000.to_d).once
+    end
+  end
+
+  it 'refreshes the balance and detects another crossing while a webhook request is blocked' do
+    command = described_class.new(
+      notify_webhook: 'https://example.com/hook', alert_price: 1_010_000, alert_balance: 45_000
+    )
+    opening_executions << [{ 'price' => 1_000_000 }]
+    allow(command).to receive(:start_feed).and_wrap_original { |start| start.call.tap(&:join) }
+    allow(private_client).to receive(:collateral).and_return(
+      { 'collateral' => 50_000 }, { 'collateral' => 50_000 }, { 'collateral' => 40_000 }
+    )
+
+    poll_waiting = Queue.new
+    poll_tick = Queue.new
+    allow(command).to receive(:sleep).with(5) do
+      poll_waiting << true
+      poll_tick.pop
+    end
+
+    requests = Queue.new
+    release_response = Queue.new
+    http = instance_double(Net::HTTP)
+    response = instance_double(Net::HTTPOK, code: '200')
+    allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true).and_yield(http)
+    allow(http).to receive(:request) do |request|
+      requests << [JSON.parse(request.body).fetch('text'), Thread.current]
+      release_response.pop
+      response
+    end
+
+    delivery_worker = nil
+    allow(command).to receive(:render) do
+      Timeout.timeout(5) do
+        poll_waiting.pop
+        poll_tick << true
+        poll_waiting.pop
+        executions_callback.last.call([{ 'price' => 1_010_000 }])
+        poll_tick << true
+        price_alert, delivery_worker = requests.pop
+        expect(price_alert).to start_with('Price alert:')
+
+        poll_waiting.pop
+        poll_tick << true
+        poll_waiting.pop
+        expect(requests).to be_empty
+        command.send(:redraw, nil, nil)
+
+        release_response << true
+        balance_alert, worker = requests.pop
+        expect(balance_alert).to start_with('Balance alert:')
+        expect(worker).to eq(delivery_worker)
+      end
+      raise Interrupt
+    end
+
+    expect(capture_stdout { command.run }).to include('Balance:  41,000')
+    expect(delivery_worker).not_to be_alive
+  end
+
+  context 'without any alert options' do
+    it 'does not build an alert notifier or evaluate alerts' do
+      expect(Bitflyer::Cli::AlertNotifier).not_to receive(:new)
+
+      described_class.new.send(:evaluate_alerts)
+    end
+  end
+
+  context 'with an alert threshold but no webhook' do
+    it 'rejects --alert-price without --notify-webhook before any lookup' do
+      expect(private_client).not_to receive(:positions)
+
+      expect { described_class.new(alert_price: 1_000_000) }
+        .to raise_error(Thor::Error, '--alert-price and --alert-balance require --notify-webhook')
+    end
+
+    it 'rejects --alert-balance without --notify-webhook before any lookup' do
+      expect(private_client).not_to receive(:positions)
+
+      expect { described_class.new(alert_balance: 40_000) }
+        .to raise_error(Thor::Error, '--alert-price and --alert-balance require --notify-webhook')
+    end
+  end
+
+  ['', '/hook', 'https:///hook', 'ftp://example.com/hook', 'https://exa mple.com/hook',
+   'https://example.com:65536/hook'].each do |url|
+    it "rejects the invalid webhook URL #{url.inspect} before any lookup" do
+      expect(private_client).not_to receive(:positions)
+
+      expect { described_class.new(notify_webhook: url) }
+        .to raise_error(Thor::Error, '--notify-webhook must be a valid HTTP or HTTPS URL')
+    end
+  end
+
   def run_iterations(command, *changes)
     allow(command).to receive(:start_feed).and_wrap_original { |start| start.call.tap(&:join) }
     allow(Thread).to receive(:new)

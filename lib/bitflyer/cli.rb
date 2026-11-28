@@ -94,8 +94,11 @@ module Bitflyer
       end
 
       desc 'summary', 'show current balance information'
+      method_option :notify_webhook, type: :string, desc: 'Webhook URL to notify on alert crossings'
+      method_option :alert_price, type: :numeric, banner: 'price', desc: 'Notify when price crosses this value'
+      method_option :alert_balance, type: :numeric, banner: 'balance', desc: 'Notify when balance drops below this'
       def summary
-        SummaryCommand.new.run
+        SummaryCommand.new(options).run
       end
     end
   end

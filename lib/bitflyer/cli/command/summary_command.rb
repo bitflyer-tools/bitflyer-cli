@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require 'colorize'
+require 'thor'
+require 'bitflyer/cli/alert_notifier'
 require 'bitflyer/cli/has_http_client'
 require 'bitflyer/cli/realtime_client'
 require 'bitflyer/cli/model/position'
@@ -11,9 +13,11 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
 
   alias http_private_client persistent_http_client
 
+  ALERT_QUEUE_CAPACITY = 32
   PRICE_FRESHNESS_LIMIT = 30 # seconds
 
-  def initialize
+  def initialize(options = {})
+    @alert_notifier = build_alert_notifier(options)
     update_balance
   rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS => e
     raise HasHTTPClient::AccountLookupFailed, "Failed to look up account: #{e.message}"
@@ -24,7 +28,7 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
   def run # rubocop:disable Metrics/MethodLength
     stdout = $stdout
     original_sync = stdout.sync
-    feed_worker = poller = nil
+    feed_worker = poller = alert_worker = nil
 
     Thread.handle_interrupt(Interrupt => :never) do
       stdout.sync = true
@@ -32,6 +36,7 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
       @execution = nil
       @feed = nil
       feed_worker = start_feed
+      alert_worker = start_alert_delivery if @alert_notifier
       poller = Thread.new { poll_account }
     end
 
@@ -40,7 +45,7 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     # exit
   ensure
     Thread.handle_interrupt(Interrupt => :never) do
-      restore_display(feed_worker, poller, stdout, original_sync)
+      restore_display(feed_worker, poller, alert_worker, stdout, original_sync)
     end
   end
 
@@ -78,9 +83,16 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     @feed&.shutdown if feed_worker
   end
 
-  def restore_display(feed_worker, poller, stdout, original_sync)
+  def restore_display(feed_worker, poller, alert_worker, stdout, original_sync)
     stop_workers(feed_worker, poller)
   ensure
+    stop_alert_delivery(alert_worker, stdout, original_sync)
+  end
+
+  def stop_alert_delivery(alert_worker, stdout, original_sync)
+    alert_worker&.kill&.join
+  ensure
+    @alert_queue = nil
     close_http_and_restore_cursor(stdout, original_sync)
   end
 
@@ -115,9 +127,42 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     loop do
       sleep 5
       update_balance
+      evaluate_alerts
     rescue *Bitflyer::Cli::PersistentHTTPClient::COMMUNICATION_ERRORS
       mark_account_stale
     end
+  end
+
+  def build_alert_notifier(options)
+    webhook_url = options[:notify_webhook]
+    alert_price = options[:alert_price]
+    alert_balance = options[:alert_balance]
+    return if [webhook_url, alert_price, alert_balance].all?(&:nil?)
+    raise Thor::Error, '--alert-price and --alert-balance require --notify-webhook' unless webhook_url
+
+    Bitflyer::Cli::AlertNotifier.new(webhook_url: webhook_url, alert_price: alert_price, alert_balance: alert_balance)
+  rescue Bitflyer::Cli::AlertNotifier::InvalidWebhookURL
+    raise Thor::Error, '--notify-webhook must be a valid HTTP or HTTPS URL'
+  end
+
+  def start_alert_delivery
+    queue = @alert_queue = SizedQueue.new(ALERT_QUEUE_CAPACITY)
+    Thread.start { loop { @alert_notifier.deliver(queue.pop) } }
+  end
+
+  def enqueue_alert(message)
+    @alert_queue.push(message, true)
+  rescue ThreadError
+    warn 'Failed to queue alert webhook: delivery queue is full'
+  end
+
+  def evaluate_alerts
+    return unless @alert_notifier
+
+    position, balance = @account_snapshot
+    price = fresh_price
+    estimated_balance = price && (balance + position.profit(price))
+    @alert_notifier.check(price: price, balance: estimated_balance) { |message| enqueue_alert(message) }
   end
 
   def update_balance

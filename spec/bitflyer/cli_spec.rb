@@ -55,6 +55,15 @@ describe Bitflyer::Cli::Runner do
     expect(command).to have_received(:run).with(no_args)
   end
 
+  it 'passes alert options to summary' do
+    allow(SummaryCommand).to receive(:new).and_return(command)
+    start('summary', '--notify-webhook=https://example.com/hook', '--alert-price=1000000', '--alert-balance=40000')
+    expect(SummaryCommand).to have_received(:new).with(
+      hash_including('notify_webhook' => 'https://example.com/hook', 'alert_price' => 1_000_000, 'alert_balance' => 40_000)
+    )
+    expect(command).to have_received(:run).with(no_args)
+  end
+
   it 'passes options to order_by_best' do
     allow(OrderByBestCommand).to receive(:new).and_return(command)
     start('order_by_best', '-a', '0.01', '-t', 'buy')
