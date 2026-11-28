@@ -181,10 +181,57 @@ describe CounterTradeCommand, :counter_trade_state do
       expect(private_client).not_to have_received(:send_child_order)
     end
 
-    it 'includes the parent ID when a stop has an invalid side' do
-      stub_responses(private_client, parent_orders: [stop.merge('side' => nil)])
+    it 'blocks when a stop with an unresolved side cannot be verified from its detail' do
+      stub_responses(private_client, parent_orders: [stop.merge('side' => nil)], parent_order: { 'status' => -200 })
 
-      expect { run_command }.to raise_error(Thor::Error, /Could not verify active parent order.*JCO-stop/)
+      expect { run_command }.to raise_error(Thor::Error, /Could not verify active protective stops.*JCO-stop/)
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+
+    it 'escapes terminal controls in the ID for a malformed detail lookup failure' do
+      id = "JCO\r\n\e[2J"
+      stub_responses(private_client, parent_orders: [stop.merge('side' => nil, 'parent_order_id' => id)],
+                                     parent_order: { 'status' => -200 })
+
+      expect { run_command }
+        .to raise_error(Thor::Error, /Could not verify active protective stops.*JCO\\r\\n\\e\[2J/)
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+
+    it 'blocks a same-side stop resolved from its detail when the list side is missing' do
+      stub_responses(private_client, parent_orders: [stop.merge('side' => nil)],
+                                     parent_order: { 'order_method' => 'SIMPLE', 'parameters' => [
+                                       { 'product_code' => 'FX_BTC_JPY', 'condition_type' => 'STOP', 'side' => 'SELL' }
+                                     ] })
+
+      expect { run_command }.to raise_error(Thor::Error, /Active protective stop.*JCO-stop/)
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+
+    it 'proceeds past an opposite-side stop resolved from its detail when the list side is missing' do
+      stub_responses(private_client, parent_orders: [stop.merge('side' => nil)],
+                                     parent_order: { 'order_method' => 'SIMPLE', 'parameters' => [
+                                       { 'product_code' => 'FX_BTC_JPY', 'condition_type' => 'STOP', 'side' => 'BUY' }
+                                     ] })
+
+      expect { run_command }.to output("Clear position SELL / 0.2\n").to_stdout
+      expect(private_client).to have_received(:send_child_order).once
+    end
+
+    it 'blocks a same-side stop resolved from its detail when the active row is missing its type' do
+      stub_responses(private_client, parent_orders: [stop.except('parent_order_type')],
+                                     parent_order: { 'order_method' => 'SIMPLE', 'parameters' => [
+                                       { 'product_code' => 'FX_BTC_JPY', 'condition_type' => 'STOP', 'side' => 'SELL' }
+                                     ] })
+
+      expect { run_command }.to raise_error(Thor::Error, /Active protective stop.*JCO-stop/)
+      expect(private_client).not_to have_received(:send_child_order)
+    end
+
+    it 'blocks when an active row with a missing type cannot be verified from its detail' do
+      stub_responses(private_client, parent_orders: [stop.except('parent_order_type')], parent_order: { 'status' => -200 })
+
+      expect { run_command }.to raise_error(Thor::Error, /Could not verify active protective stops.*JCO-stop/)
       expect(private_client).not_to have_received(:send_child_order)
     end
 

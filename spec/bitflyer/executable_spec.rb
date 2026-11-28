@@ -84,13 +84,16 @@ describe 'bitflyer executable', :stop_state, :counter_trade_state do
       expect(private_client).not_to have_received(:send_child_order)
     end
 
-    it 'escapes terminal controls in the parent order ID for an unverifiable active order' do
-      stop = { 'parent_order_id' => "JCO\r\n\e[2J", 'parent_order_type' => 'STOP', 'side' => nil, 'size' => 0.2 }
+    it 'reports an unverifiable lookup for a stop with an unresolved side' do
+      id = "JCO\r\n\e[2J"
+      stop = { 'parent_order_id' => id, 'parent_order_type' => 'STOP', 'side' => nil, 'size' => 0.2 }
       stub_responses(private_client, parent_orders: [stop])
+      escaped_id = Regexp.escape(Bitflyer::Cli::TerminalText.escape(id))
+      message = /Could not verify active protective stops: Failed to look up parent order #{escaped_id}/
 
       expect do
         expect { run_cli('counter_trade') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-      end.to output("Could not verify active parent order (JCO\\r\\n\\e[2J).\n").to_stderr
+      end.to output(message).to_stderr
       expect(private_client).not_to have_received(:send_child_order)
     end
   end

@@ -24,27 +24,6 @@ module Bitflyer
         id.is_a?(String) && !id.strip.empty? && id.match?(/[^[:space:]]/)
       end
 
-      def self.check_submission!(response, acceptance_key)
-        status = response.status
-        body = response.body
-        return check!(body, acceptance_key) if status.between?(200, 299)
-
-        raise_rejection!(body) if status.between?(400, 499) && body.is_a?(Hash) && rejected?(body[acceptance_key], body)
-
-        raise Unverified, "Could not verify order acceptance (HTTP #{status})."
-      end
-
-      def self.check!(response, acceptance_key)
-        raise Unverified, 'Could not verify order acceptance.' unless response.is_a?(Hash)
-
-        acceptance_id = response[acceptance_key]
-        return if valid_acceptance?(acceptance_id, response)
-
-        raise Unverified, 'Could not verify order acceptance.' unless rejected?(acceptance_id, response)
-
-        raise_rejection!(response)
-      end
-
       def self.raise_rejection!(response)
         message = response['error_message'].to_s
         raise self, message.empty? ? "Order rejected: #{response.inspect}" : TerminalText.escape(message)
