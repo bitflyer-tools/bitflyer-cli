@@ -4,6 +4,7 @@ require 'thor'
 require 'bitflyer/cli/active_stop_classifier'
 require 'bitflyer/cli/parent_order_lookup'
 require 'bitflyer/cli/persistent_http_client'
+require 'bitflyer/cli/stop_submission'
 require 'bitflyer/cli/terminal_text'
 
 module Bitflyer
@@ -15,6 +16,13 @@ module Bitflyer
       end
 
       def verify!(offset_side)
+        verify_active_orders!(offset_side)
+        verify_local_submissions!
+      end
+
+      private
+
+      def verify_active_orders!(offset_side)
         order = @lookup.find('ACTIVE') { |entry| protective_stop?(entry, offset_side) }
         return unless order
 
@@ -23,7 +31,18 @@ module Bitflyer
         raise Thor::Error, "Could not verify active protective stops: #{e.message}"
       end
 
-      private
+      def verify_local_submissions!
+        directory = StopSubmission.state_directory
+        SubmissionStateDirectory.prepare(directory)
+        Dir.children(directory).grep(/\A[0-9a-f]{64}\z/).each do |name|
+          path = File.join(directory, name)
+          value = File.read(path, mode: File::RDONLY | File::NOFOLLOW)
+          next unless value.strip.empty? || value == StopSubmission::UNVERIFIED
+
+          raise Thor::Error, 'A protective stop submission is unverified. Reconcile it before counter trading. ' \
+                             "Submission record: #{TerminalText.escape(path)}"
+        end
+      end
 
       def protective_stop?(order, offset_side)
         case ActiveStopClassifier.from_list(order, offset_side)

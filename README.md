@@ -134,6 +134,12 @@ market. An active standalone stop on the offset side or an unverifiable lookup
 blocks the trade. The command prints the conflicting order ID when available so
 you can resolve the order before retrying.
 
+An unverified local stop submission also blocks the offset and the CLI prints
+the record path. Stop records do not store the account or side separately from
+their hashed filename, so any unverified record in the shared stop state
+directory blocks the offset. Check the stop outcome and current position in
+bitFlyer before removing the unverified record and retrying.
+
 `bitflyer counter_trade` coordinates runs for each product on the same machine
 when they share an OS account and state directory. The command saves a record
 under `$XDG_STATE_HOME/bitflyer-cli/counter-trades` (default
