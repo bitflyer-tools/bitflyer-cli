@@ -44,7 +44,7 @@ describe 'Loading the counter trade command on its own' do
   end
 end
 
-describe CounterTradeCommand, :counter_trade_state do
+describe CounterTradeCommand, :stop_state do
   subject(:run_command) { described_class.new.run }
 
   let!(:private_client) { stub_persistent_client }

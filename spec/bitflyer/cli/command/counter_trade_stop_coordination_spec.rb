@@ -3,7 +3,7 @@
 require 'spec_helper'
 require 'timeout'
 
-describe 'Coordinating protective stops with counter trades', :stop_state, :counter_trade_state do
+describe 'Coordinating protective stops with counter trades', :stop_state do
   let!(:private_client) { stub_persistent_client }
   let(:positions) { [position(side: 'BUY', price: 1_000_000, size: 0.2)] }
   let(:child_order_accepted) do
@@ -61,6 +61,25 @@ describe 'Coordinating protective stops with counter trades', :stop_state, :coun
 
     expect { run_counter_trade }.to raise_error(Thor::Error, /Active protective stop.*JCO-stop/)
     expect(private_client).not_to have_received(:send_child_order)
+  end
+
+  it 'blocks a counter trade after a stop submission times out even when there are no active parent orders' do
+    allow(private_client).to receive(:send_parent_order).and_raise(Timeout::Error)
+    expect { run_stop }.to raise_error(Bitflyer::Cli::StopSubmission::Unverified, /communication error/)
+    record = Dir.glob(File.join(@stop_state_directory, '[0-9a-f]' * 64)).fetch(0)
+
+    expect { run_counter_trade }.to raise_error(Thor::Error, /unverified.*#{Regexp.escape(record)}/)
+    expect(private_client).not_to have_received(:send_child_order)
+
+    File.unlink(record)
+    expect { run_counter_trade }.to output("Clear position SELL / 0.2\n").to_stdout
+    expect(private_client).to have_received(:send_child_order).once
+  end
+
+  it 'allows a counter trade when stop acceptance is confirmed and there are no active parent orders' do
+    expect { run_stop }.to output(/Set stop order/).to_stdout
+    expect { run_counter_trade }.to output("Clear position SELL / 0.2\n").to_stdout
+    expect(private_client).to have_received(:send_child_order).once
   end
 
   it 'blocks a stop placement while a counter trade submitted first remains unresolved' do

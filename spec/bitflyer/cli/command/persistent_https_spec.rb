@@ -252,7 +252,7 @@ describe 'Persistent exchange HTTPS' do
     end
   end
 
-  context 'when offsetting a position', :counter_trade_state do
+  context 'when offsetting a position', :stop_state do
     let(:position_rows) { [position(side: 'BUY', price: 1_000_000, size: 0.1)] }
     let(:acceptance_id) { acceptance.fetch('child_order_acceptance_id') }
     let(:previous_order_path) do
