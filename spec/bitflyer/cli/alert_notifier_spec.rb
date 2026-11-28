@@ -9,49 +9,53 @@ describe Bitflyer::Cli::AlertNotifier do
     allow(http).to receive(:request).and_return(response)
   end
 
+  def check_alerts(price:, balance:)
+    notifier.check(price: price, balance: balance) { |message| notifier.deliver(message) }
+  end
+
   describe '#check with an alert price' do
     subject(:notifier) { described_class.new(webhook_url: 'https://example.com/hook', alert_price: 1_000_000) }
 
     it 'does not notify on the first observed reading, even when already past the threshold' do
-      notifier.check(price: 1_100_000, balance: nil)
+      check_alerts(price: 1_100_000, balance: nil)
 
       expect(http).not_to have_received(:request)
     end
 
     it 'notifies once when the price crosses the threshold upward' do
-      notifier.check(price: 999_000, balance: nil)
-      notifier.check(price: 1_000_000, balance: nil)
+      check_alerts(price: 999_000, balance: nil)
+      check_alerts(price: 1_000_000, balance: nil)
 
       expect(http).to have_received(:request).once
     end
 
     it 'notifies once when the price crosses the threshold downward' do
-      notifier.check(price: 1_000_000, balance: nil)
-      notifier.check(price: 999_999, balance: nil)
+      check_alerts(price: 1_000_000, balance: nil)
+      check_alerts(price: 999_999, balance: nil)
 
       expect(http).to have_received(:request).once
     end
 
     it 'does not notify again while the price stays on the same side' do
-      notifier.check(price: 999_000, balance: nil)
-      notifier.check(price: 1_000_000, balance: nil)
-      notifier.check(price: 1_100_000, balance: nil)
+      check_alerts(price: 999_000, balance: nil)
+      check_alerts(price: 1_000_000, balance: nil)
+      check_alerts(price: 1_100_000, balance: nil)
 
       expect(http).to have_received(:request).once
     end
 
     it 'notifies on each crossing, including the return to the first observed side' do
-      notifier.check(price: 999_000, balance: nil)
-      notifier.check(price: 1_000_000, balance: nil)
-      notifier.check(price: 999_000, balance: nil)
-      notifier.check(price: 1_000_000, balance: nil)
+      check_alerts(price: 999_000, balance: nil)
+      check_alerts(price: 1_000_000, balance: nil)
+      check_alerts(price: 999_000, balance: nil)
+      check_alerts(price: 1_000_000, balance: nil)
 
       expect(http).to have_received(:request).exactly(3).times
     end
 
     it 'ignores a missing price' do
-      notifier.check(price: nil, balance: nil)
-      notifier.check(price: nil, balance: nil)
+      check_alerts(price: nil, balance: nil)
+      check_alerts(price: nil, balance: nil)
 
       expect(http).not_to have_received(:request)
     end
@@ -65,8 +69,8 @@ describe Bitflyer::Cli::AlertNotifier do
         response
       end
 
-      notifier.check(price: 999_000, balance: nil)
-      notifier.check(price: 1_000_000, balance: nil)
+      check_alerts(price: 999_000, balance: nil)
+      check_alerts(price: 1_000_000, balance: nil)
     end
   end
 
@@ -74,28 +78,28 @@ describe Bitflyer::Cli::AlertNotifier do
     subject(:notifier) { described_class.new(webhook_url: 'https://example.com/hook', alert_balance: 50_000) }
 
     it 'does not notify on the first observed reading, even when already below the threshold' do
-      notifier.check(price: nil, balance: 10_000)
+      check_alerts(price: nil, balance: 10_000)
 
       expect(http).not_to have_received(:request)
     end
 
     it 'notifies once when the balance drops below the threshold' do
-      notifier.check(price: nil, balance: 60_000)
-      notifier.check(price: nil, balance: 40_000)
+      check_alerts(price: nil, balance: 60_000)
+      check_alerts(price: nil, balance: 40_000)
 
       expect(http).to have_received(:request).once
     end
 
     it 'does not notify when the balance recovers above the threshold' do
-      notifier.check(price: nil, balance: 40_000)
-      notifier.check(price: nil, balance: 60_000)
+      check_alerts(price: nil, balance: 40_000)
+      check_alerts(price: nil, balance: 60_000)
 
       expect(http).not_to have_received(:request)
     end
 
     it 'ignores a missing balance' do
-      notifier.check(price: nil, balance: nil)
-      notifier.check(price: nil, balance: nil)
+      check_alerts(price: nil, balance: nil)
+      check_alerts(price: nil, balance: nil)
 
       expect(http).not_to have_received(:request)
     end
@@ -105,8 +109,8 @@ describe Bitflyer::Cli::AlertNotifier do
     subject(:notifier) { described_class.new(webhook_url: 'https://example.com/hook') }
 
     it 'never notifies' do
-      notifier.check(price: 2_000_000, balance: 10)
-      notifier.check(price: 1, balance: 2_000_000)
+      check_alerts(price: 2_000_000, balance: 10)
+      check_alerts(price: 1, balance: 2_000_000)
 
       expect(http).not_to have_received(:request)
     end
@@ -118,9 +122,9 @@ describe Bitflyer::Cli::AlertNotifier do
     it 'warns instead of raising when the webhook request fails' do
       allow(Net::HTTP).to receive(:start).and_raise(SocketError, 'getaddrinfo failed')
 
-      notifier.check(price: 999_000, balance: nil)
+      check_alerts(price: 999_000, balance: nil)
 
-      expect { notifier.check(price: 1_000_000, balance: nil) }
+      expect { check_alerts(price: 1_000_000, balance: nil) }
         .to output("Failed to send alert webhook: SocketError\n").to_stderr
     end
 
@@ -128,12 +132,12 @@ describe Bitflyer::Cli::AlertNotifier do
       it "warns once on HTTP #{status} and continues checking later crossings" do
         failed_response = instance_double(Net::HTTPResponse, code: status)
         allow(http).to receive(:request).and_return(failed_response, response)
-        notifier.check(price: 999_000, balance: nil)
+        check_alerts(price: 999_000, balance: nil)
 
         expect do
-          notifier.check(price: 1_000_000, balance: nil)
-          notifier.check(price: 1_100_000, balance: nil)
-          notifier.check(price: 999_000, balance: nil)
+          check_alerts(price: 1_000_000, balance: nil)
+          check_alerts(price: 1_100_000, balance: nil)
+          check_alerts(price: 999_000, balance: nil)
         end.to output("Failed to send alert webhook: HTTP #{status}\n").to_stderr
         expect(http).to have_received(:request).twice
       end

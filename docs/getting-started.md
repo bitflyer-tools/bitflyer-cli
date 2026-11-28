@@ -46,7 +46,7 @@ Press `Ctrl+C` to return to the shell.
 
 Add `--notify-webhook URL` with `--alert-price PRICE` and/or
 `--alert-balance BALANCE` to get a one-time webhook notification (compatible
-with Slack and Discord incoming webhooks) the moment the live price or the
+with Slack and Discord incoming webhooks) when the live price or the
 estimated balance crosses that value, so you do not have to keep the terminal
 in view to catch it.
 

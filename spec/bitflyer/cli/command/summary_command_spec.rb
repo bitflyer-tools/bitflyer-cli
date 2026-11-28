@@ -577,6 +577,63 @@ describe SummaryCommand do
     end
   end
 
+  it 'refreshes the balance and detects another crossing while a webhook request is blocked' do
+    command = described_class.new(
+      notify_webhook: 'https://example.com/hook', alert_price: 1_010_000, alert_balance: 45_000
+    )
+    opening_executions << [{ 'price' => 1_000_000 }]
+    allow(command).to receive(:start_feed).and_wrap_original { |start| start.call.tap(&:join) }
+    allow(private_client).to receive(:collateral).and_return(
+      { 'collateral' => 50_000 }, { 'collateral' => 50_000 }, { 'collateral' => 40_000 }
+    )
+
+    poll_waiting = Queue.new
+    poll_tick = Queue.new
+    allow(command).to receive(:sleep).with(5) do
+      poll_waiting << true
+      poll_tick.pop
+    end
+
+    requests = Queue.new
+    release_response = Queue.new
+    http = instance_double(Net::HTTP)
+    response = instance_double(Net::HTTPOK, code: '200')
+    allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true).and_yield(http)
+    allow(http).to receive(:request) do |request|
+      requests << [JSON.parse(request.body).fetch('text'), Thread.current]
+      release_response.pop
+      response
+    end
+
+    delivery_worker = nil
+    allow(command).to receive(:render) do
+      Timeout.timeout(5) do
+        poll_waiting.pop
+        poll_tick << true
+        poll_waiting.pop
+        executions_callback.last.call([{ 'price' => 1_010_000 }])
+        poll_tick << true
+        price_alert, delivery_worker = requests.pop
+        expect(price_alert).to start_with('Price alert:')
+
+        poll_waiting.pop
+        poll_tick << true
+        poll_waiting.pop
+        expect(requests).to be_empty
+        command.send(:redraw, nil, nil)
+
+        release_response << true
+        balance_alert, worker = requests.pop
+        expect(balance_alert).to start_with('Balance alert:')
+        expect(worker).to eq(delivery_worker)
+      end
+      raise Interrupt
+    end
+
+    expect(capture_stdout { command.run }).to include('Balance:  41,000')
+    expect(delivery_worker).not_to be_alive
+  end
+
   context 'without any alert options' do
     it 'does not build an alert notifier or evaluate alerts' do
       expect(Bitflyer::Cli::AlertNotifier).not_to receive(:new)

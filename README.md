@@ -50,7 +50,7 @@ Press `Ctrl+C` to exit the live display.
 
 Add `--notify-webhook URL` with `--alert-price PRICE` and/or
 `--alert-balance BALANCE` to post a Slack/Discord-compatible webhook
-notification the moment the live price or the estimated balance crosses that
+notification when the live price or the estimated balance crosses that
 value, without needing to keep the terminal in view.
 
 ```sh

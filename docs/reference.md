@@ -8,7 +8,7 @@ All market and account operations use the BTC-CFD/JPY product
 
 | Command | Result |
 | --- | --- |
-| `bitflyer summary` | Live execution price, net position, spread, and estimated balance. Press Ctrl+C to exit. Add `--notify-webhook URL` with `--alert-price PRICE` and/or `--alert-balance BALANCE` to post a one-shot webhook notification the moment the live price or the estimated balance crosses that value. |
+| `bitflyer summary` | Live execution price, net position, spread, and estimated balance. Press Ctrl+C to exit. Add `--notify-webhook URL` with `--alert-price PRICE` and/or `--alert-balance BALANCE` to post a one-shot webhook notification when the live price or the estimated balance crosses that value. |
 | `bitflyer open_orders` | Active child orders and parent strategies. |
 | `bitflyer executions` | Up to 100 recent account fills. Use either `--child-order-id ID` or `--child-order-acceptance-id ID` to filter by order. Add `--all` to page through the full history, and `--export PATH` to write CSV instead of a table. |
 
@@ -16,8 +16,10 @@ All market and account operations use the BTC-CFD/JPY product
 with Slack and Discord incoming webhooks. The URL must use HTTP or HTTPS.
 `--alert-price` fires once per crossing in either direction.
 `--alert-balance` fires when the balance drops below the threshold.
-Both options require `--notify-webhook`. Failed deliveries warn on stderr
-and monitoring continues.
+Both options require `--notify-webhook`. Webhook delivery runs in the background
+while account monitoring continues. If the queue already holds 32 pending
+alerts, new alerts are dropped with a warning on stderr. Failed deliveries also
+warn on stderr. Exiting cancels any unfinished or queued deliveries.
 
 ## Submit or cancel orders
 

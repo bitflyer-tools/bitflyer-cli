@@ -7,8 +7,7 @@ require 'bitflyer/cli/persistent_http_client'
 
 module Bitflyer
   module Cli
-    # Fires a one-shot webhook notification the moment a watched price or balance
-    # threshold is crossed, instead of on every poll while the condition holds.
+    # Detects threshold crossings and sends the resulting webhook notifications.
     class AlertNotifier
       class InvalidWebhookURL < StandardError; end
 
@@ -20,9 +19,20 @@ module Bitflyer
         @balance_side = nil
       end
 
-      def check(price:, balance:)
-        check_price(price)
-        check_balance(balance)
+      def check(price:, balance:, &enqueue)
+        check_price(price, &enqueue)
+        check_balance(balance, &enqueue)
+      end
+
+      def deliver(message)
+        uri = @webhook_uri
+        request = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
+        request.body = JSON.generate(text: message, content: message)
+        response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == 'https') { |http| http.request(request) }
+        status = response.code.to_i
+        warn "Failed to send alert webhook: HTTP #{status}" unless status.between?(200, 299)
+      rescue *PersistentHTTPClient::COMMUNICATION_ERRORS => e
+        warn "Failed to send alert webhook: #{e.class}"
       end
 
       private
@@ -40,7 +50,7 @@ module Bitflyer
         return unless @alert_price && price
 
         side = price >= @alert_price ? :above : :below
-        notify("Price alert: #{price} crossed #{@alert_price}") if @price_side && side != @price_side
+        yield("Price alert: #{price} crossed #{@alert_price}") if @price_side && side != @price_side
         @price_side = side
       end
 
@@ -48,19 +58,8 @@ module Bitflyer
         return unless @alert_balance && balance
 
         side = balance >= @alert_balance ? :above : :below
-        notify("Balance alert: #{balance} dropped below #{@alert_balance}") if @balance_side == :above && side == :below
+        yield("Balance alert: #{balance} dropped below #{@alert_balance}") if @balance_side == :above && side == :below
         @balance_side = side
-      end
-
-      def notify(message)
-        uri = @webhook_uri
-        request = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
-        request.body = JSON.generate(text: message, content: message)
-        response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == 'https') { |http| http.request(request) }
-        status = response.code.to_i
-        warn "Failed to send alert webhook: HTTP #{status}" unless status.between?(200, 299)
-      rescue *PersistentHTTPClient::COMMUNICATION_ERRORS => e
-        warn "Failed to send alert webhook: #{e.class}"
       end
     end
   end

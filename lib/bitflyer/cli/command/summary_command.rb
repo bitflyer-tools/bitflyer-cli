@@ -13,6 +13,7 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
 
   alias http_private_client persistent_http_client
 
+  ALERT_QUEUE_CAPACITY = 32
   PRICE_FRESHNESS_LIMIT = 30 # seconds
 
   def initialize(options = {})
@@ -27,7 +28,7 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
   def run # rubocop:disable Metrics/MethodLength
     stdout = $stdout
     original_sync = stdout.sync
-    feed_worker = poller = nil
+    feed_worker = poller = alert_worker = nil
 
     Thread.handle_interrupt(Interrupt => :never) do
       stdout.sync = true
@@ -35,6 +36,7 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
       @execution = nil
       @feed = nil
       feed_worker = start_feed
+      alert_worker = start_alert_delivery if @alert_notifier
       poller = Thread.new { poll_account }
     end
 
@@ -43,7 +45,7 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     # exit
   ensure
     Thread.handle_interrupt(Interrupt => :never) do
-      restore_display(feed_worker, poller, stdout, original_sync)
+      restore_display(feed_worker, poller, alert_worker, stdout, original_sync)
     end
   end
 
@@ -81,9 +83,16 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     @feed&.shutdown if feed_worker
   end
 
-  def restore_display(feed_worker, poller, stdout, original_sync)
+  def restore_display(feed_worker, poller, alert_worker, stdout, original_sync)
     stop_workers(feed_worker, poller)
   ensure
+    stop_alert_delivery(alert_worker, stdout, original_sync)
+  end
+
+  def stop_alert_delivery(alert_worker, stdout, original_sync)
+    alert_worker&.kill&.join
+  ensure
+    @alert_queue = nil
     close_http_and_restore_cursor(stdout, original_sync)
   end
 
@@ -136,12 +145,24 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     raise Thor::Error, '--notify-webhook must be a valid HTTP or HTTPS URL'
   end
 
+  def start_alert_delivery
+    queue = @alert_queue = SizedQueue.new(ALERT_QUEUE_CAPACITY)
+    Thread.start { loop { @alert_notifier.deliver(queue.pop) } }
+  end
+
+  def enqueue_alert(message)
+    @alert_queue.push(message, true)
+  rescue ThreadError
+    warn 'Failed to queue alert webhook: delivery queue is full'
+  end
+
   def evaluate_alerts
     return unless @alert_notifier
 
     position, balance = @account_snapshot
     price = fresh_price
-    @alert_notifier.check(price: price, balance: price && (balance + position.profit(price)))
+    estimated_balance = price && (balance + position.profit(price))
+    @alert_notifier.check(price: price, balance: estimated_balance) { |message| enqueue_alert(message) }
   end
 
   def update_balance
