@@ -2,7 +2,7 @@ require 'spec_helper'
 
 describe Bitflyer::Cli::AlertNotifier do
   let(:http) { instance_double(Net::HTTP) }
-  let(:response) { instance_double(Net::HTTPOK) }
+  let(:response) { instance_double(Net::HTTPOK, code: '200') }
 
   before do
     allow(Net::HTTP).to receive(:start).with('example.com', 443, use_ssl: true).and_yield(http)
@@ -40,13 +40,13 @@ describe Bitflyer::Cli::AlertNotifier do
       expect(http).to have_received(:request).once
     end
 
-    it 'notifies again on a second crossing after returning to the original side' do
+    it 'notifies on each crossing, including the return to the first observed side' do
       notifier.check(price: 999_000, balance: nil)
       notifier.check(price: 1_000_000, balance: nil)
       notifier.check(price: 999_000, balance: nil)
       notifier.check(price: 1_000_000, balance: nil)
 
-      expect(http).to have_received(:request).twice
+      expect(http).to have_received(:request).exactly(3).times
     end
 
     it 'ignores a missing price' do
@@ -121,7 +121,22 @@ describe Bitflyer::Cli::AlertNotifier do
       notifier.check(price: 999_000, balance: nil)
 
       expect { notifier.check(price: 1_000_000, balance: nil) }
-        .to output(/Failed to send alert webhook: getaddrinfo failed/).to_stderr
+        .to output("Failed to send alert webhook: SocketError\n").to_stderr
+    end
+
+    %w[404 503].each do |status|
+      it "warns once on HTTP #{status} and continues checking later crossings" do
+        failed_response = instance_double(Net::HTTPResponse, code: status)
+        allow(http).to receive(:request).and_return(failed_response, response)
+        notifier.check(price: 999_000, balance: nil)
+
+        expect do
+          notifier.check(price: 1_000_000, balance: nil)
+          notifier.check(price: 1_100_000, balance: nil)
+          notifier.check(price: 999_000, balance: nil)
+        end.to output("Failed to send alert webhook: HTTP #{status}\n").to_stderr
+        expect(http).to have_received(:request).twice
+      end
     end
   end
 end

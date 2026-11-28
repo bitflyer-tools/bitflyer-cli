@@ -601,6 +601,16 @@ describe SummaryCommand do
     end
   end
 
+  ['', '/hook', 'https:///hook', 'ftp://example.com/hook', 'https://exa mple.com/hook',
+   'https://example.com:65536/hook'].each do |url|
+    it "rejects the invalid webhook URL #{url.inspect} before any lookup" do
+      expect(private_client).not_to receive(:positions)
+
+      expect { described_class.new(notify_webhook: url) }
+        .to raise_error(Thor::Error, '--notify-webhook must be a valid HTTP or HTTPS URL')
+    end
+  end
+
   def run_iterations(command, *changes)
     allow(command).to receive(:start_feed).and_wrap_original { |start| start.call.tap(&:join) }
     allow(Thread).to receive(:new)

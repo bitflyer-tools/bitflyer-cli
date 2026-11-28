@@ -132,6 +132,8 @@ class SummaryCommand # rubocop:disable Metrics/ClassLength
     raise Thor::Error, '--alert-price and --alert-balance require --notify-webhook' unless webhook_url
 
     Bitflyer::Cli::AlertNotifier.new(webhook_url: webhook_url, alert_price: alert_price, alert_balance: alert_balance)
+  rescue Bitflyer::Cli::AlertNotifier::InvalidWebhookURL
+    raise Thor::Error, '--notify-webhook must be a valid HTTP or HTTPS URL'
   end
 
   def evaluate_alerts

@@ -13,10 +13,11 @@ All market and account operations use the BTC-CFD/JPY product
 | `bitflyer executions` | Up to 100 recent account fills. Use either `--child-order-id ID` or `--child-order-acceptance-id ID` to filter by order. |
 
 `--notify-webhook` posts a JSON body with `text` and `content` fields, compatible
-with Slack and Discord incoming webhooks. The notifier fires once when the
-watched value crosses the threshold and stays quiet while it remains on the
-same side, so it never fires on every poll. `--alert-price` and
-`--alert-balance` require `--notify-webhook`.
+with Slack and Discord incoming webhooks. The URL must use HTTP or HTTPS.
+`--alert-price` fires once per crossing in either direction.
+`--alert-balance` fires when the balance drops below the threshold.
+Both options require `--notify-webhook`. Failed deliveries warn on stderr
+and monitoring continues.
 
 ## Submit or cancel orders
 
