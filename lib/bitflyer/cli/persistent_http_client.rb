@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'bitflyer'
+require 'zlib'
 
 module Bitflyer
   module Cli
@@ -72,7 +73,7 @@ module Bitflyer
           request = Net::HTTP::Post.new(path, default_headers.merge('Content-Type' => 'application/json'))
           request.body = JSON.generate(body.compact)
           sign_request(request, path, request.body)
-          @session.http(@uri).request(request)
+          send_request(request)
         end
 
         private
@@ -80,8 +81,13 @@ module Bitflyer
         def execute(request)
           # Net::HTTP reconnects before sending when it detects a closed socket.
           # Its transport retries apply only to idempotent methods, excluding POST.
-          response = @session.http(@uri).request(request)
-          parse_response(request, response)
+          parse_response(request, send_request(request))
+        end
+
+        def send_request(request)
+          @session.http(@uri).request(request)
+        rescue Zlib::Error
+          raise Net::HTTPBadResponse, 'Could not decompress HTTP response'
         end
 
         def parse_response(request, response)
