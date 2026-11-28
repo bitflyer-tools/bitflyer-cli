@@ -61,6 +61,13 @@ describe Bitflyer::Cli::Runner do
     expect(command).to have_received(:run).with(hash_including('amount' => 0.01, 'type' => 'buy'))
   end
 
+  it 'passes options to executions' do
+    allow(ExecutionsCommand).to receive(:new).and_return(command)
+    start('executions', '--child-order-id', 'JOR-order', '--all', '--export', 'executions.csv')
+    expect(command).to have_received(:run)
+      .with(child_order_id: 'JOR-order', child_order_acceptance_id: nil, all: true, export: 'executions.csv')
+  end
+
   it 'passes options to order_by_twap' do
     allow(OrderByTWAPCommand).to receive(:new).and_return(command)
     allow(command).to receive(:run).and_return(accepted: 3, rejected: 0, unverified: 0, unattempted: 0)
