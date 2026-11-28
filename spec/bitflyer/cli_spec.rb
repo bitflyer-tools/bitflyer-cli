@@ -37,6 +37,12 @@ describe Bitflyer::Cli::Runner do
     expect { start('help', 'order_by_best') }.to output(/order_by_best.*--amount=amount.*--type=buy\/sell/).to_stdout
   end
 
+  it 'shows the child order scope and parent cancellation command in cancel_all help' do
+    expect { start('help', 'cancel_all') }
+      .to output(/Request cancellation of all child orders for FX_BTC_JPY.*bitflyer\s+cancel_order\s+parent\s+ID\s+--confirm-parent/m)
+      .to_stdout
+  end
+
   it 'runs cancel_all' do
     allow(CancelAllCommand).to receive(:new).and_return(command)
     start('cancel_all')
