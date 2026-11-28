@@ -481,6 +481,24 @@ describe StopByRangeCommand, :stop_state do
         end
       end
 
+      it 'submits a stop when detail confirms a different-size stop is on the opposite side' do
+        stub_responses(private_client, parent_orders: [parent.merge('parent_order_id' => 'JCO-buy', 'size' => 0.1)])
+        stub_parent_detail(parameters: [parameters.merge('side' => 'BUY', 'size' => 0.1)])
+
+        expect { run }.to output(/Set stop order/).to_stdout
+        expect(private_client).to have_received(:parent_order).with(parent_order_id: 'JCO-buy').once
+        expect(private_client).to have_received(:send_parent_order).once
+      end
+
+      it 'blocks submission when detail confirms a different-size stop is on the same side' do
+        stub_responses(private_client, parent_orders: [parent.merge('size' => 0.1)])
+        stub_parent_detail(parameters: [parameters.merge('size' => 0.1)])
+
+        expect { run }.to raise_error(Thor::Error, 'Conflicting active stop orders: JCO-stop')
+        expect(private_client).to have_received(:parent_order).with(parent_order_id: 'JCO-stop').once
+        expect(private_client).not_to have_received(:send_parent_order)
+      end
+
       [nil, 'UNKNOWN'].each do |type|
         it "verifies stop details when the active row's type is #{type || 'missing'}" do
           order = type ? parent.merge('parent_order_type' => type) : parent.except('parent_order_type')
